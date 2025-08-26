@@ -3,50 +3,239 @@ from telebot import types
 from config import TOKEN
 import dtp
 import pit
-from word_utils import create_fio_data_file
+import no_osago
+from word_utils import create_fio_data_file, export_clients_db_to_excel
 import json
 import sqlite3
 import time
 import os
 from database import DatabaseManager, get_client_from_db_by_client_id, search_clients_by_fio_in_db
-
+from telebot.apihelper import ApiException
+from telebot.handler_backends import ContinueHandling, CancelUpdate
 bot = telebot.TeleBot(TOKEN)
 db = DatabaseManager()
 
 
 @bot.message_handler(commands=['start'])
 def start_handler(message):
+    clear_chat_history_optimized(message, 50)
     keyboard = types.InlineKeyboardMarkup()
     
     btn1 = types.InlineKeyboardButton("Добавить клиента", callback_data="btn_new_client")
     btn2 = types.InlineKeyboardButton("Искать в базе", callback_data="btn_search_database")
-    
+    btn3 = types.InlineKeyboardButton("Скачать базу данных", callback_data="btn_output")
     keyboard.add(btn1)
     keyboard.add(btn2)
-    
+    keyboard.add(btn3)
     bot.send_message(
         message.chat.id, 
         "Привет! Выберите дальнейшие действия", 
         reply_markup=keyboard
     )
+def callback_client_details2(message, client_id):
+    """Показываем детали клиента и проверяем answer_ins"""
 
-dtp.init_bot(bot, start_handler)
-pit.init_bot(bot, start_handler)
+    print(f"DEBUG callback_client_details: client_id = {client_id}")
+    try:
+        user_id = message.from_user.id
+        client = get_client_from_db_by_client_id(client_id)
+        if not client:
+            bot.send_message(message.chat.id, f"❌ Клиент не найден")
+            return
+
+        try:
+            if client.get('data_json'):
+                client_data = json.loads(client['data_json'])
+            else:
+                client_data = {}
+        except (json.JSONDecodeError, TypeError):
+            client_data = {}
+        
+        details = f"""👤 Детали клиента:
+
+📋 ID: {client['client_id']}
+👤 ФИО: {client['fio']}
+📱 Телефон: {client.get('number', 'Не указан')}
+🚗 Автомобиль: {client.get('car_number', 'Не указан')}
+📅 Дата ДТП: {client.get('date_dtp', 'Не указана')}
+🕐 Время ДТП: {client_data.get('time_dtp', 'Не указано')}
+📍 Адрес ДТП: {client_data.get('address_dtp', 'Не указан')}
+🏢 Страховая: {client.get('insurance', 'Не указана')}
+🆔 Собственник: {'Да' if client_data.get('sobstvenik') == 'Yes' else 'Нет'}
+"""
+        dop_osm =client.get('dop_osm', '') or client_data.get('dop_osm', '')
+        answer_ins = client.get('answer_ins', '') or client_data.get('answer_ins', '')
+        analis_ins = client.get('analis_ins', '') or client_data.get('analis_ins', '')
+        pret = client.get('pret', '') or client_data.get('pret', '')
+        pret_sto = client.get('pret_sto', '') or client_data.get('pret_sto', '')
+        ombuc = client.get('ombuc', '') or client_data.get('ombuc', '')
+        keyboard = types.InlineKeyboardMarkup()
+        del client['data_json']
+        time.sleep(0.5)
+        dtp.user_temp_data[user_id] = client
+        if client['accident']=='dtp' and client['Done'] !="Yes":
+            if (not dop_osm or dop_osm == '') and (not answer_ins or answer_ins == ''):
+                user_id = message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="dopOsm"
+                ))
+            elif not answer_ins or answer_ins == '':
+                user_id = message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data=f"continuefilling"
+                ))
+            elif ((analis_ins == '') or (not analis_ins)) and (answer_ins != ''):
+                user_id = message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data=f"next"))
+            elif (pret_sto == '') or (not pret_sto):
+                user_id = message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data=f"nextPrSto"))
+            elif ((pret == '') or (not pret)) and (answer_ins != '') and (analis_ins != ''):
+    
+                user_id = message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data=f"nextPr"))
+            elif ((ombuc == '') or (not ombuc)) and (answer_ins != '') and (analis_ins != '') and (pret != ''):
+                user_id = message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data=f"nextO"))
+            elif answer_ins =="NOOSAGO":
+                user_id = message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data=f"IskNOOSAGO"))
+        elif client['accident']=='pit' and client['Done'] !="Yes":
+            if analis_ins =="Yes":
+                user_id = message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="pit_next"))
+        keyboard.add(types.InlineKeyboardButton("🔍 Новый поиск", callback_data="btn_search_database"))
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu"))
+        keyboard.add(types.InlineKeyboardButton("Редактирование данных", callback_data="edit_db"))
+        keyboard.add(types.InlineKeyboardButton("Просмотр данных", callback_data="view_db"))
+        keyboard.add(types.InlineKeyboardButton("Просмотр ранее созданных документов", callback_data="view_docs"))
+        keyboard.add(types.InlineKeyboardButton("Загрузить документы", callback_data="download_docs"))
+        bot.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+            text=details,
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
+        print(f"Ошибка получения данных клиента: {e}")
+dtp.init_bot(bot, start_handler, callback_client_details2)
+pit.init_bot(bot, start_handler, callback_client_details2)
+no_osago.init_bot(bot, start_handler, callback_client_details2)
+
 @bot.callback_query_handler(func=lambda call: call.data == "btn_new_client")
 def callback_handler(call):
+    clear_chat_history_optimized(call.message, 100)
     import dtp
     import pit
+    import no_osago
     keyboard = types.InlineKeyboardMarkup()
     btn1 = types.InlineKeyboardButton("Только с ДТП", callback_data="btn_dtp")
-    #btn2 = types.InlineKeyboardButton("После ямы", callback_data="btn_pit")
+    btn2 = types.InlineKeyboardButton("Подал заявление", callback_data="btn_podal_zayavl")
+    btn3 = types.InlineKeyboardButton("После ямы", callback_data="btn_pit")
+    btn4 = types.InlineKeyboardButton("Нет Осаго", callback_data="btn_net_osago")
     keyboard.add(btn1)
-    #keyboard.add(btn2)
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text="Выберите дальнейшие действия",
+    keyboard.add(btn3)
+    bot.send_message(
+        call.message.chat.id, 
+        "Выберите дальнейшие действия", 
         reply_markup=keyboard
     )
+@bot.callback_query_handler(func=lambda call: call.data == "btn_output")
+def callback_output(call):
+    chat_id = call.message.chat.id
+    file_path = "clients_export.xlsx"
+    
+    try:
+        # Уведомляем о начале процесса
+        bot.send_message(
+            chat_id,
+            "⏳ База данных выгружается, подождите...",
+            reply_markup=None
+        )
+        
+        # Выполняем экспорт
+        success = export_clients_db_to_excel("clients.db", file_path)
+        
+        if success and os.path.exists(file_path):
+            # Отправляем файл
+            with open(file_path, 'rb') as document_file:
+                bot.send_document(
+                    chat_id,
+                    document_file,
+                    caption="📊 Экспорт базы данных клиентов"
+                )
+            
+            # Удаляем файл после успешной отправки
+            try:
+                os.remove(file_path)
+                print(f"✅ Файл {file_path} успешно удален")
+            except OSError as e:
+                print(f"⚠️ Ошибка при удалении файла: {e}")
+            
+
+            
+        else:
+            bot.send_message(
+                chat_id, 
+                "❌ Ошибка при создании файла экспорта. Проверьте логи."
+            )
+    
+    except Exception as e:
+        # Если произошла ошибка, все равно пытаемся удалить файл
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except:
+                pass
+        
+        bot.send_message(
+            chat_id,
+            f"❌ Произошла ошибка при экспорте: {str(e)}"
+        )
+        print(f"Ошибка в callback_output: {e}")
+    
+    finally:
+        # Возвращаемся в главное меню
+        start_handler(call.message)
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_search_database")
 def callback_search_database(call):
@@ -236,7 +425,8 @@ def search_clients_handler(message):
     
     if len(search_term) < 2:
         bot.send_message(message.chat.id, "❌ Введите минимум 2 символа для поиска")
-        return_to_main_menu(message)
+        bot.register_next_step_handler(message, search_clients_handler)
+        #return_to_main_menu(message)
         return
     
     try:
@@ -339,7 +529,7 @@ def callback_client_details(call):
         keyboard = types.InlineKeyboardMarkup()
         del client['data_json']
         time.sleep(0.5)
-      
+        dtp.user_temp_data[user_id] = client
         if client['accident']=='dtp' and client['Done'] !="Yes":
             if (not dop_osm or dop_osm == '') and (not answer_ins or answer_ins == ''):
                 user_id = call.message.from_user.id
@@ -400,9 +590,19 @@ def callback_client_details(call):
                 keyboard.add(types.InlineKeyboardButton(
                     "📝 Продолжить заполнение", 
                     callback_data=f"IskNOOSAGO"))
+        elif client['accident']=='pit' and client['Done'] !="Yes":
+            if analis_ins =="Yes":
+                user_id = call.message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="pit_next"))
         keyboard.add(types.InlineKeyboardButton("🔍 Новый поиск", callback_data="btn_search_database"))
         keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu"))
         keyboard.add(types.InlineKeyboardButton("Редактирование данных", callback_data="edit_db"))
+        keyboard.add(types.InlineKeyboardButton("Просмотр данных", callback_data="view_db"))
         keyboard.add(types.InlineKeyboardButton("Просмотр ранее созданных документов", callback_data="view_docs"))
         keyboard.add(types.InlineKeyboardButton("Загрузить документы", callback_data="download_docs"))
         bot.edit_message_text(
@@ -411,7 +611,7 @@ def callback_client_details(call):
             text=details,
             reply_markup=keyboard
         )
-        
+        return CancelUpdate()
     except Exception as e:
         bot.answer_callback_query(call.id, f"❌ Ошибка: {e}")
         print(f"Ошибка получения данных клиента: {e}")
@@ -427,16 +627,16 @@ def callback_main_menu(call):
     btn2 = types.InlineKeyboardButton("Искать в базе", callback_data="btn_search_database")
     keyboard.add(btn1)
     keyboard.add(btn2)
-    
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text="Выберите дальнейшие действия",
+    clear_chat_history_optimized(call.message, 30)
+    bot.send_message(
+        call.message.chat.id,
+        "Выберите дальнейшие действия",
         reply_markup=keyboard
     )
 
 def return_to_main_menu(message):
     """Возврат в главное меню через новое сообщение"""
+    clear_chat_history_optimized(message, 30)
     user_id = message.from_user.id
     if user_id in dtp.user_temp_data:
         del dtp.user_temp_data[user_id]
@@ -525,19 +725,100 @@ def callback_edit_data(call):
             'step': 'parameter',
             'client_data': merged_data
         }
-        
+
         # Отправляем сообщение и регистрируем обработчик
         new_message = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=message_text
+            text=message_text,
         )
-        
+
         bot.register_next_step_handler(new_message, handle_parameter_input, user_id)
         
     except Exception as e:
         bot.answer_callback_query(call.id, f"Ошибка: {e}")
         print(f"Ошибка в callback_edit_data: {e}")
+@bot.callback_query_handler(func=lambda call: call.data == "view_db")
+def callback_view_data(call):
+    """Обработчик кнопки редактирования данных"""
+    try:
+        user_id = call.message.from_user.id
+        
+        # Получаем client_id из temp_data
+        client_data = None
+        if user_id in dtp.user_temp_data:
+            client_data = dtp.user_temp_data[user_id]
+        
+        if not client_data or 'client_id' not in client_data:
+            bot.answer_callback_query(call.id, "Ошибка: данные клиента не найдены")
+            return
+        
+        client_id = client_data['client_id']
+        
+        # Получаем полные данные клиента из базы данных
+        full_client_data = get_client_from_db_by_client_id(client_id)
+        
+        if not full_client_data:
+            bot.answer_callback_query(call.id, "Клиент не найден в базе данных")
+            return
+        
+        fio = full_client_data.get('fio', '')
+        
+        # Парсим JSON данные если они есть
+        try:
+            if full_client_data.get('data_json'):
+                json_data = json.loads(full_client_data['data_json'])
+                # Объединяем основные данные с JSON данными
+                merged_data = {**full_client_data, **json_data}
+            else:
+                merged_data = full_client_data
+        except (json.JSONDecodeError, TypeError):
+            merged_data = full_client_data
+        
+        # Удаляем служебные поля
+        if 'data_json' in merged_data:
+            del merged_data['data_json']
+        if 'id' in merged_data:
+            del merged_data['id']
+        
+        # Проверяем существование файла fio_data.txt
+        fio_file_path = os.path.join(str(fio), f"{fio}_data.txt")
+        
+        if not os.path.exists(fio_file_path):
+            # Если файла нет, создаем его на основе данных из БД
+            try:
+                create_fio_data_file(merged_data)
+            except Exception as e:
+                bot.answer_callback_query(call.id, f"Ошибка создания файла данных: {e}")
+                return
+        
+        # Читаем содержимое файла
+        try:
+            with open(fio_file_path, 'r', encoding='utf-8') as file:
+                file_content = file.read()
+        except Exception as e:
+            bot.answer_callback_query(call.id, f"Ошибка чтения файла: {e}")
+            return
+        
+        # Формируем сообщение с содержимым файла
+        message_text = f"Текущие данные клиента {fio}:\n\n{file_content}"
+        
+
+        keyboard = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("Назад", callback_data=f"client_details_{client_id}")
+        keyboard.add(btn1)
+        # Отправляем сообщение и регистрируем обработчик
+        new_message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=message_text,
+            reply_markup=keyboard
+        )
+        
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"Ошибка: {e}")
+        print(f"Ошибка в callback_view_data: {e}")
+
 
 def handle_parameter_input(message, user_id):
     """Обработка ввода названия параметра"""
@@ -830,7 +1111,7 @@ def callback_download_docs(call):
         
         message_text = f"""📁 Загрузка документов для клиента '{fio}'
 
-Отправьте один или несколько документов (файлы любого типа).
+Отправьте один или несколько документов (В одном сообщении должен быть один документ, файлы любого типа).
 Все отправленные файлы будут сохранены в папку клиента.
 
 Когда закончите отправку файлов, нажмите "Завершить загрузку"."""
@@ -1107,6 +1388,7 @@ def callback_cancel_upload(call):
         print(f"Ошибка в callback_cancel_upload: {e}")
 
 def return_to_main_menu_from_call(call):
+    clear_chat_history_optimized(call.message, 30)
     """Возврат в главное меню из callback"""
     try:
         user_id = call.message.from_user.id
@@ -1177,5 +1459,32 @@ def callback_show_more_files(call):
     except Exception as e:
         bot.answer_callback_query(call.id, f"Ошибка: {e}")
         print(f"Ошибка в callback_show_more_files: {e}")
+
+def clear_chat_history_optimized(message, count):
+    """
+    Быстрое удаление последних N сообщений
+    """
+    chat_id = message.chat.id
+    current_message_id = message.message_id
+    deleted_count = 0
+    # Удаляем последние N сообщений без статусных сообщений для максимальной скорости
+    for message_id in range(current_message_id, max(1, current_message_id - count), -1):
+        try:
+            bot.delete_message(chat_id=chat_id, message_id=message_id)
+            deleted_count += 1
+        except ApiException as e:
+            # Пропускаем ошибки и продолжаем
+            if "message to delete not found" in str(e).lower():
+                continue
+            elif "message can't be deleted" in str(e).lower():
+                continue
+            elif "too many requests" in str(e).lower():
+                time.sleep(0.3)  # Короткая пауза при превышении лимитов
+                continue
+        except Exception:
+            continue
+        
+
+
 if __name__ == '__main__':
     bot.infinity_polling()

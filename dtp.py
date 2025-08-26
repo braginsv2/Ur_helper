@@ -8,14 +8,17 @@ from word_utils import replace_words_in_word, create_fio_data_file
 from database import DatabaseManager, save_client_to_db_with_id
 
 
+
 bot = None
+callback_client_details2_handler = None
 user_temp_data = {}
 
 
-def init_bot(bot_instance, start_handler=None):
+def init_bot(bot_instance, start_handler=None, callback_handler=None):
     """Инициализация бота в модуле"""
-    global bot
+    global bot, callback_client_details2_handler
     bot = bot_instance
+    callback_client_details2_handler = callback_handler
 
     @bot.callback_query_handler(func=lambda call: call.data == "btn_dtp")
     def callback_dtp(call):
@@ -116,15 +119,16 @@ def init_bot(bot_instance, start_handler=None):
             5. Страховой полис
             6. Банковские реквизиты""",
             reply_markup=None
-        )  
+        )
+        id_message = [call.message.message_id]  
         message = bot.send_message(call.message.chat.id, "Введите ФИО в формате Иванов Иван Иванович")
-        print(data)  
-        bot.register_next_step_handler(message, FIO, data)
+        id_message.append(message.message_id) 
+        bot.register_next_step_handler(message, FIO, data, id_message)
     @bot.callback_query_handler(func=lambda call: call.data in ["gibdd", "avarkom", "evro"])
     def callback_who_dtp(call):
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
-         
+        id_message = [] 
           
         if call.data == "gibdd":
             data.update({"who_dtp": "ГИБДД"})
@@ -137,16 +141,16 @@ def init_bot(bot_instance, start_handler=None):
             message_id=call.message.message_id,
             text="Введите марку, модель клиента",
             reply_markup=None
-        )  
-        print(data)  
-        bot.register_next_step_handler(message, marks, data)
+        )
+        id_message.append(message.message_id)  
+        bot.register_next_step_handler(message, marks, data, id_message)
 
     @bot.callback_query_handler(func=lambda call: call.data in ["STS", "PTS", "DKP"])
     def callback_docs(call):
         user_id = call.message.from_user.id
         
         data = user_temp_data[user_id]
-         
+        id_message = [] 
           
         if call.data == "STS":
             data.update({"docs": "СТС"})
@@ -156,8 +160,8 @@ def init_bot(bot_instance, start_handler=None):
                 text="Введите серию документа о регистрации ТС",
                 reply_markup=None
                 )
-
-            bot.register_next_step_handler(message, seria_docs, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, seria_docs, data, id_message)
 
         elif call.data == "PTS":
             data.update({"docs": "ПТС"})
@@ -167,8 +171,9 @@ def init_bot(bot_instance, start_handler=None):
                 text="Введите серию документа о регистрации ТС",
                 reply_markup=None
                 )
+            id_message.append(message.message_id)
 
-            bot.register_next_step_handler(message, seria_docs, data)
+            bot.register_next_step_handler(message, seria_docs, data, id_message)
         else: 
             data.update({"docs": "ДКП"})
             data.update({"seria_docs": "-"})
@@ -178,14 +183,15 @@ def init_bot(bot_instance, start_handler=None):
                 message_id=call.message.message_id,
                 text="Введите дату ДКП",
                 reply_markup=None
-            ) 
-            bot.register_next_step_handler(message, data_docs, data)
+            )
+            id_message.append(message.message_id) 
+            bot.register_next_step_handler(message, data_docs, data, id_message)
     
     @bot.callback_query_handler(func=lambda call: call.data in ["Reco", "Ugo", "SOGAZ", "Ingo", "Ros", "Maks", "Energo", "Sovko", "other"])
     def callback_insurance(call):
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
-         
+        id_message=[] 
           
         if call.data == "SOGAZ":
             data.update({"insurance": 'АО "Согаз"'})
@@ -194,9 +200,10 @@ def init_bot(bot_instance, start_handler=None):
             message_id=call.message.message_id,
             text="Введите серию страхового полиса",
             reply_markup=None
-            ) 
+            )
+            id_message.append(message.message_id) 
   
-            bot.register_next_step_handler(message, seria_insurance, data)
+            bot.register_next_step_handler(message, seria_insurance, data, id_message)
         elif call.data == "Reco":
             data.update({"insurance": 'САО "Ресо-Гарантия"'})
             message = bot.edit_message_text(
@@ -205,7 +212,8 @@ def init_bot(bot_instance, start_handler=None):
             text="Введите серию страхового полиса",
             reply_markup=None
             ) 
-            bot.register_next_step_handler(message, seria_insurance, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, seria_insurance, data, id_message)
         elif call.data == "Ugo":
             data.update({"insurance": 'АО "ГСК "Югория"'})
             message = bot.edit_message_text(
@@ -213,8 +221,9 @@ def init_bot(bot_instance, start_handler=None):
             message_id=call.message.message_id,
             text="Введите серию страхового полиса",
             reply_markup=None
-            ) 
-            bot.register_next_step_handler(message, seria_insurance, data)
+            )
+            id_message.append(message.message_id) 
+            bot.register_next_step_handler(message, seria_insurance, data, id_message)
         elif call.data == "Ingo":
             data.update({"insurance": 'СПАО "Ингосстрах"'})
             message = bot.edit_message_text(
@@ -223,8 +232,8 @@ def init_bot(bot_instance, start_handler=None):
             text="Введите серию страхового полиса",
             reply_markup=None
             ) 
-  
-            bot.register_next_step_handler(message, seria_insurance, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, seria_insurance, data, id_message)
         elif call.data == "Ros":
             data.update({"insurance": 'ПАО СК "Росгосстрах"'})
             message = bot.edit_message_text(
@@ -233,8 +242,8 @@ def init_bot(bot_instance, start_handler=None):
             text="Введите серию страхового полиса",
             reply_markup=None
             ) 
-  
-            bot.register_next_step_handler(message, seria_insurance, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, seria_insurance, data, id_message)
         elif call.data == "Maks":
             data.update({"insurance": 'АО "Макс"'})
             message = bot.edit_message_text(
@@ -243,8 +252,8 @@ def init_bot(bot_instance, start_handler=None):
             text="Введите серию страхового полиса",
             reply_markup=None
             ) 
-  
-            bot.register_next_step_handler(message, seria_insurance, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, seria_insurance, data, id_message)
         elif call.data == "Energo":
             data.update({"insurance": 'ПАО «САК «Энергогарант»'})
             message = bot.edit_message_text(
@@ -253,8 +262,8 @@ def init_bot(bot_instance, start_handler=None):
             text="Введите серию страхового полиса",
             reply_markup=None
             ) 
-  
-            bot.register_next_step_handler(message, seria_insurance, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, seria_insurance, data, id_message)
         elif call.data == "Sovko":
             data.update({"insurance": 'АО «Совкомбанк страхование»'})
             message = bot.edit_message_text(
@@ -263,8 +272,8 @@ def init_bot(bot_instance, start_handler=None):
             text="Введите серию страхового полиса",
             reply_markup=None
             ) 
-  
-            bot.register_next_step_handler(message, seria_insurance, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, seria_insurance, data, id_message)
         else: 
             message = bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -272,7 +281,8 @@ def init_bot(bot_instance, start_handler=None):
             text="Введите название страховой компании",
             reply_markup=None
             )
-            bot.register_next_step_handler(message, other_insurance, data) 
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, other_insurance, data, id_message) 
 
     @bot.callback_query_handler(func=lambda call: call.data in ["sud1", "sud2", "sud3", "sud4", "sud5", "sud6", "sudOther"])
     def callback_insurance(call):
@@ -281,7 +291,7 @@ def init_bot(bot_instance, start_handler=None):
         
         data = user_temp_data[user_id]
          
-          
+        id_message = []  
         if call.data == "sud1":
             data.update({"sud": 'Кировский районный суд г. Томска,  634050, г. Томск, ул. Дзержинского, д.58'})
             message = bot.edit_message_text(
@@ -289,8 +299,9 @@ def init_bot(bot_instance, start_handler=None):
                 message_id=call.message.message_id,
                 text="Введите стоимость государственной пошлины",
                 reply_markup=None
-            ) 
-            bot.register_next_step_handler(message, gos_money, data)
+            )
+            id_message.append(message.message_id) 
+            bot.register_next_step_handler(message, gos_money, data, id_message)
         elif call.data == "sud2":
             data.update({"sud": 'Советский районный суд г. Томска, 634050, г. Томск, ул. Карташова, д. 45'})
             message = bot.edit_message_text(
@@ -298,8 +309,9 @@ def init_bot(bot_instance, start_handler=None):
                 message_id=call.message.message_id,
                 text="Введите стоимость государственной пошлины",
                 reply_markup=None
-            ) 
-            bot.register_next_step_handler(message, gos_money, data)
+            )
+            id_message.append(message.message_id) 
+            bot.register_next_step_handler(message, gos_money, data, id_message)
         elif call.data == "sud3":
             data.update({"sud": 'Октябрьский районный суд г. Томска, 634050, г. Томск, пр. Ленина, д. 21'})
             message = bot.edit_message_text(
@@ -307,8 +319,9 @@ def init_bot(bot_instance, start_handler=None):
                 message_id=call.message.message_id,
                 text="Введите стоимость государственной пошлины",
                 reply_markup=None
-            ) 
-            bot.register_next_step_handler(message, gos_money, data)
+            )
+            id_message.append(message.message_id) 
+            bot.register_next_step_handler(message, gos_money, data, id_message)
         elif call.data == "sud4":
             data.update({"sud": 'Томский областной суд, 634003, г. Томск, пер. Макушина, 8'})
             message = bot.edit_message_text(
@@ -317,7 +330,8 @@ def init_bot(bot_instance, start_handler=None):
                 text="Введите стоимость государственной пошлины",
                 reply_markup=None
             ) 
-            bot.register_next_step_handler(message, gos_money, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, gos_money, data, id_message)
         elif call.data == "sud5":
             data.update({"sud": 'Ленинский районный суд г. Томска, 634050, г. Томск, пер. Батенькова, 6'})
             message = bot.edit_message_text(
@@ -326,7 +340,8 @@ def init_bot(bot_instance, start_handler=None):
                 text="Введите стоимость государственной пошлины",
                 reply_markup=None
             ) 
-            bot.register_next_step_handler(message, gos_money, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, gos_money, data, id_message)
         elif call.data == "sud6":
             data.update({"sud": 'Томский Районный Суд Томской Области, 634050, г. Томск, ул. Обруб, 8'})
             message = bot.edit_message_text(
@@ -334,8 +349,9 @@ def init_bot(bot_instance, start_handler=None):
                 message_id=call.message.message_id,
                 text="Введите стоимость государственной пошлины",
                 reply_markup=None
-            ) 
-            bot.register_next_step_handler(message, gos_money, data)
+            )
+            id_message.append(message.message_id) 
+            bot.register_next_step_handler(message, gos_money, data, id_message)
         else: 
             message = bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -343,7 +359,8 @@ def init_bot(bot_instance, start_handler=None):
             text="Введите название суда",
             reply_markup=None
             )
-            bot.register_next_step_handler(message, sud_other, data) 
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, sud_other, data, id_message) 
     @bot.callback_query_handler(func=lambda call: call.data in ["not_rogalev","not_other"])
     def callback_notarius(call):
 
@@ -385,7 +402,7 @@ def init_bot(bot_instance, start_handler=None):
                                         str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
                                         str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["date_dtp"]), str(data["time_dtp"]),
                                         str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"])],
-                                        "Шаблоны\\1. ДТП\\Деликт\\Деликт 4. Заявление о выдаче документов от страховой.docx",
+                                        "Шаблоны\\1. ДТП\\Деликт\\Деликт 4. Запрос в страховую о выдаче акта и расчёта.docx",
                                         data["fio"]+"\\"+data["fio"]+"_заявление_о_выдаче_док_страх.docx")
                 user_id = call.message.from_user.id
                 user_temp_data[user_id] = data
@@ -395,7 +412,12 @@ def init_bot(bot_instance, start_handler=None):
                 btn1 = types.InlineKeyboardButton("Да", callback_data="YesNOOSAGO")
                 btn2 = types.InlineKeyboardButton("Нет", callback_data="NoNOOSAGO")
                 keyboard.add(btn1, btn2)
-                bot.send_message(call.message.chat.id, text="Данные сохранены, отправить вам документы?", reply_markup=keyboard)
+                bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Данные сохранены, отправить вам документы?",
+                reply_markup=keyboard
+                ) 
             else:
                 user_id = call.message.from_user.id
                 user_temp_data[user_id] = data
@@ -413,19 +435,20 @@ def init_bot(bot_instance, start_handler=None):
                 reply_markup=keyboard
                 ) 
 
-        else: 
+        else:
+            id_message = [] 
             message = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text="Введите ФИО представителя в формате Иванов Иван Иванович",
             reply_markup=None
             )
-            bot.register_next_step_handler(message, fio_not, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, fio_not, data, id_message)
     @bot.callback_query_handler(func=lambda call: call.data in ["number_rogalev","number_not_other"])
     def callback_number_notarius(call):
 
         user_id = call.message.from_user.id
-        
         data = user_temp_data[user_id]
          
           
@@ -434,13 +457,11 @@ def init_bot(bot_instance, start_handler=None):
             data.update({"date_pret": str(datetime.now().strftime("%d.%m.%Y"))})
             data.update({"analis_ins": "Yes"})
             data.update({"pret_sto": "Yes"})
-            print(data)
             try:
                 client_id, updated_data = save_client_to_db_with_id(data)
                 data.update(updated_data)
             except Exception as e:
                 print(f"Ошибка базы данных: {e}")
-            print(data)
             create_fio_data_file(data)
             if data['vibor'] == "vibor1":
                 replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
@@ -497,18 +518,22 @@ def init_bot(bot_instance, start_handler=None):
             btn1 = types.InlineKeyboardButton("Да", callback_data="YesPr")
             btn2 = types.InlineKeyboardButton("Нет", callback_data="NoPr")
             keyboard.add(btn1, btn2)
-            bot.send_message(call.message.chat.id, text="Данные сохранены, отправить вам документы?", reply_markup=keyboard)
-
-
-
+            message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Данные сохранены, отправить вам документы?",
+            reply_markup=keyboard
+            )
         else: 
+            id_message =[]
             message = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text="Введите номер телефона представителя в формате +79XXXXXXXXX",
             reply_markup=None
             )
-            bot.register_next_step_handler(message, number_not, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, number_not, data, id_message)
     @bot.callback_query_handler(func=lambda call: call.data in ["Yes", "No"])
     def callback_send_docs(call):
 
@@ -522,7 +547,12 @@ def init_bot(bot_instance, start_handler=None):
             {"path": data["fio"]+"\\"+data["fio"] + "_юр_договор.docx", "name": "Юридический договор"},
             {"path": data["fio"]+"\\"+data["fio"] + "_заявление_в_страховую.docx", "name": "Заявление в страховую"}
             ]
-            message= bot.send_message(call.message.chat.id, "Отправляю документы...")
+            message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Отправляю документы...",
+            reply_markup=None
+            )
             for doc in documents:
                 try:
                     with open(doc["path"], 'rb') as document_file:
@@ -534,7 +564,8 @@ def init_bot(bot_instance, start_handler=None):
                     bot.send_message(call.message.chat.id, f"Файл не найден: {doc['path']}")
                 except Exception as e:
                     bot.send_message(call.message.chat.id, f"Ошибка отправки: {e}")
-        start_handler(call.message)
+        callback_client_details2_handler(call.message, data['client_id'])
+        #start_handler(call.message)
     @bot.callback_query_handler(func=lambda call: call.data in ["YesNOOSAGO", "NoNOOSAGO"])
     def callback_send_docs4(call):
 
@@ -559,7 +590,7 @@ def init_bot(bot_instance, start_handler=None):
                     bot.send_message(call.message.chat.id, f"Файл не найден: {doc['path']}")
                 except Exception as e:
                     bot.send_message(call.message.chat.id, f"Ошибка отправки: {e}")
-        start_handler(call.message)
+        callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data in ["YesPr", "NoPr"])
     def callback_send_docs_pret(call):
          
@@ -586,7 +617,7 @@ def init_bot(bot_instance, start_handler=None):
                     bot.send_message(call.message.chat.id, f"Файл не найден: {doc['path']}")
                 except Exception as e:
                     bot.send_message(call.message.chat.id, f"Ошибка отправки: {e}")
-        start_handler(call.message)
+        callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data in ["dopOsmYes", "dopOsmNo"])
     def callback_send_docs_pret(call):
          
@@ -611,7 +642,7 @@ def init_bot(bot_instance, start_handler=None):
                     bot.send_message(call.message.chat.id, f"Файл не найден: {doc['path']}")
                 except Exception as e:
                     bot.send_message(call.message.chat.id, f"Ошибка отправки: {e}")
-        start_handler(call.message)
+        callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data in ["ZaprInsYes", "ZaprInsNo"])
     def callback_send_docs_o(call):
          
@@ -644,12 +675,8 @@ def init_bot(bot_instance, start_handler=None):
         btn2 = types.InlineKeyboardButton("Главное меню", callback_data="btn_main_menu")
         keyboard.add(btn1)
         keyboard.add(btn2)
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Анализируем ответ от страховой\nПродолжить или вернуться в главное меню?",
-            reply_markup=keyboard
-        ) 
+        bot.send_message(call.message.chat.id, "Анализируем ответ от страховой\nПродолжить или вернуться в главное меню?",reply_markup=keyboard)
+
 
     @bot.callback_query_handler(func=lambda call: call.data in ["YesO", "NoO"])
     def callback_send_docs_o2(call):
@@ -674,7 +701,7 @@ def init_bot(bot_instance, start_handler=None):
                     bot.send_message(call.message.chat.id, f"Файл не найден: {doc['path']}")
                 except Exception as e:
                     bot.send_message(call.message.chat.id, f"Ошибка отправки: {e}")
-        start_handler(call.message)
+        callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data in ["vibor2STOYes", "vibor2STONo"])
     def callback_STOZayav(call):
          
@@ -699,7 +726,7 @@ def init_bot(bot_instance, start_handler=None):
                     bot.send_message(call.message.chat.id, f"Файл не найден: {doc['path']}")
                 except Exception as e:
                     bot.send_message(call.message.chat.id, f"Ошибка отправки: {e}")
-        start_handler(call.message)    
+        callback_client_details2_handler(call.message, data['client_id'])  
     @bot.callback_query_handler(func=lambda call: call.data in ["YesIsk", "NoIsk"])
     def callback_send_docs_o3(call):
          
@@ -724,7 +751,7 @@ def init_bot(bot_instance, start_handler=None):
                     bot.send_message(call.message.chat.id, f"Файл не найден: {doc['path']}")
                 except Exception as e:
                     bot.send_message(call.message.chat.id, f"Ошибка отправки: {e}")
-        start_handler(call.message)
+        callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data in ["dopOsm"])
     def callback_continue_dop_osm(call):
         """Продолжение заполнения данных клиента"""
@@ -754,7 +781,7 @@ def init_bot(bot_instance, start_handler=None):
          
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
-         
+        id_message = [] 
 
         data.update({'dop_osm': "Yes"})
         message = bot.edit_message_text(
@@ -762,8 +789,9 @@ def init_bot(bot_instance, start_handler=None):
             message_id=call.message.message_id,
             text="Введите входящий номер в страховую",
             reply_markup=None
-        )  
-        bot.register_next_step_handler(message, Nv_ins, data)
+        )
+        id_message.append(message.message_id)  
+        bot.register_next_step_handler(message, Nv_ins, data, id_message)
          
     @bot.callback_query_handler(func=lambda call: call.data in ["continuefilling", "dopNo"])
     def callback_continue_filling(call):
@@ -873,17 +901,20 @@ def init_bot(bot_instance, start_handler=None):
             
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
-        bot.send_message(
+        id_message = []
+        message = bot.send_message(
                 chat_id=call.message.chat.id,
                 text="Деликт (у виновника нет ОСАГО)\nПодготовьте документы:\n1.Доверенность",
                 reply_markup=None
             )
+        id_message.append(message.message_id)
         message=bot.send_message(
                 chat_id=call.message.chat.id,
                 text="Введите номер доверенности",
                 reply_markup=None
             )
-        bot.register_next_step_handler(message, N_dov_not, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, N_dov_not, data, id_message)
 
     @bot.callback_query_handler(func=lambda call: call.data in ["docsInsYes", "docsInsNo"])
     def callback_Zabr_insurance(call):
@@ -921,14 +952,8 @@ def init_bot(bot_instance, start_handler=None):
             text="Документ сформирован, отправить вам его?",
             reply_markup=keyboard
             ) 
-
-
         elif call.data == "docsInsNo":
-
-
-            user_temp_data[user_id] = data
-             
-
+            user_temp_data[user_id] = data 
             keyboard = types.InlineKeyboardMarkup()
             btn1 = types.InlineKeyboardButton("Продолжить", callback_data="next")
             btn2 = types.InlineKeyboardButton("Главное меню", callback_data="btn_main_menu")
@@ -971,23 +996,28 @@ def init_bot(bot_instance, start_handler=None):
             reply_markup=keyboard
             ) 
         elif data["answer_ins"]=="NO":
-            bot.edit_message_text(
+            id_message = []
+            message = bot.edit_message_text(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
                     text="Страховая компания без согласования произвела выплату. Направление на ремонт не выдавалось",
                     reply_markup=None
                     )
+            id_message.append(message.message_id)
             data.update({"vibor": "vibor1"})
-            bot.send_message(
+            message = bot.send_message(
                     chat_id=call.message.chat.id,
                     text="Подготовьте документы:\n1. Нотариальная доверенность\n2. Ответ страховой\n3. Экспертное заключение\n4. Выплатное дело\n5. Платежное поручение",
                     reply_markup=None)
+            id_message.append(message.message_id)
             if data["Nv_ins"] != None or data["Nv_ins"] != '':
                 message = bot.send_message(call.message.chat.id, text="Введите дату экспертного заключения")
-                bot.register_next_step_handler(message, date_exp, data)
+                id_message.append(message.message_id)
+                bot.register_next_step_handler(message, date_exp, data, id_message)
             else:
                 message = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
-                bot.register_next_step_handler(message, Nv_ins, data)
+                id_message.append(message.message_id)
+                bot.register_next_step_handler(message, Nv_ins, data, id_message)
                 
         elif data["answer_ins"]=="NOOSAGO":
             keyboard = types.InlineKeyboardMarkup()
@@ -1036,22 +1066,24 @@ def init_bot(bot_instance, start_handler=None):
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
          
-          
+        id_message = []
 
-        bot.edit_message_text(
+        message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="Подготовьте документы:\n1. Нотариальную доверенность\n2. Отказ СТО",
                 reply_markup=None
                 )
+        id_message.append(message.message_id)
 
         message = bot.send_message(
             call.message.chat.id, 
             "Введите дату отказа СТО", 
             reply_markup=None
         )
+        id_message.append(message.message_id)
 
-        bot.register_next_step_handler(message, data_otkaz_sto, data)
+        bot.register_next_step_handler(message, data_otkaz_sto, data, id_message)
     @bot.callback_query_handler(func=lambda call: call.data == "nextO")
     def callback_ombuc(call):
         """Продолжение заполнения данных клиента"""
@@ -1096,7 +1128,7 @@ def init_bot(bot_instance, start_handler=None):
             "Выберите подходящий вариант", 
             reply_markup=keyboard
         )
-        start_handler(message)
+        callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data == "NOO")
     def callback_ombuc_viboryes(call):
         """Продолжение заполнения данных клиента"""
@@ -1105,21 +1137,22 @@ def init_bot(bot_instance, start_handler=None):
         data = user_temp_data[user_id]
          
           
-
-        bot.edit_message_text(
+        id_message = []
+        message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="Подготовьте документы:\n1. Принятое заявление омбуцмену\n2. Ответ омбуцмена\n3. Независимую техническую экспертизу",
                 reply_markup=None
                 )
-
+        id_message.append(message.message_id)
 
         message = bot.send_message(
             call.message.chat.id, 
             "Введите серию ВУ виновника", 
             reply_markup=None
         )
-        bot.register_next_step_handler(message, seria_vu_culp, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, seria_vu_culp, data, id_message)
     @bot.callback_query_handler(func=lambda call: call.data == "Ura")
     def callback_ura(call):
         """Продолжение заполнения данных клиента"""
@@ -1148,7 +1181,7 @@ def init_bot(bot_instance, start_handler=None):
                 reply_markup=None
                 )
 
-        start_handler(message)
+        callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data =="YESpr")
     def callback_pret_viboryes(call):
         """Продолжение заполнения данных клиента"""
@@ -1170,7 +1203,7 @@ def init_bot(bot_instance, start_handler=None):
             "Выберите подходящий вариант", 
             reply_markup=keyboard
         )
-        start_handler(message)
+        callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data=="NOpr")
     def callback_pret_viboryes(call):
         """Продолжение заполнения данных клиента"""
@@ -1179,41 +1212,45 @@ def init_bot(bot_instance, start_handler=None):
         data = user_temp_data[user_id]
          
           
-
+        id_message = []
          
-        bot.edit_message_text(
+        message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="Подготовьте документы:\n1. Принятая претензия\n2. Ответ на претензию",
                 reply_markup=None
                 )
-
+        id_message.append(message.message_id)
         message = bot.send_message(
             call.message.chat.id, 
             "Введите дату принятия претензии в формате ДД.ММ.ГГГГ", 
             reply_markup=None
         )
-        bot.register_next_step_handler(message, data_pret_prin, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, data_pret_prin, data, id_message)
     @bot.callback_query_handler(func=lambda call: call.data == "vibor1")
     def callback_vibor1(call):
          
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
          
-          
+        id_message =[] 
         data.update({"vibor": str(call.data)})
 
-        bot.edit_message_text(
+        message =bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="Подготовьте документы:\n1. Нотариальная доверенность\n2. Ответ страховой\n3. Экспертное заключение\n4. Выплатное дело\n5. Платежное поручение",
                 reply_markup=None)
+        id_message.append(message.message_id)
         if data["Nv_ins"] != None or data["Nv_ins"] != '':
             message = bot.send_message(call.message.chat.id, text="Введите дату экспертного заключения")
-            bot.register_next_step_handler(message, date_exp, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, date_exp, data, id_message)
         else:
             message = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
-            bot.register_next_step_handler(message, Nv_ins, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, Nv_ins, data, id_message)
     @bot.callback_query_handler(func=lambda call: call.data=="vibor2")
     def callback_vibor2(call):
          
@@ -1250,21 +1287,24 @@ def init_bot(bot_instance, start_handler=None):
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
          
-          
+        id_message = []  
         data.update({"viborRem": str(call.data)})
 
-        bot.edit_message_text(
+        message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="Подготовьте документы:\n1. Акт приема-передачи автомобиля\n2. Ответ страховой\n3. Экспертное заключение\n4. Направление на ремонт",
                 reply_markup=None
                 )
+        id_message.append(message.message_id)
         if (data["Nv_ins"] == None) or (data["Nv_ins"] == ''):
             message = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
-            bot.register_next_step_handler(message, Nv_ins, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, Nv_ins, data, id_message)
         else:
             message = bot.send_message(call.message.chat.id, text="Введите название СТО")
-            bot.register_next_step_handler(message, name_sto, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, name_sto, data, id_message)
 
 
     @bot.callback_query_handler(func=lambda call: call.data=="viborRem2")
@@ -1292,25 +1332,26 @@ def init_bot(bot_instance, start_handler=None):
                 text="Выберите один из вариантов",
                 reply_markup=keyboard
                 )
-        start_handler(message)
+        callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data =="viborRem3")
     def callback_viborRem3(call):
          
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
          
-          
+        id_message = []  
         data.update({"viborRem": str(call.data)})
 
-        bot.edit_message_text(
+        message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="Подготовьте документы:\n1. Нотариальная доверенность\n2. Ответ страховой\n3. Экспертное заключение\4. Направление на ремонт",
                 reply_markup=None
                 )
-
+        id_message.append(message.message_id)
         message = bot.send_message(call.message.chat.id, text="Введите название СТО")
-        bot.register_next_step_handler(message, name_sto, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, name_sto, data, id_message)
 
     @bot.callback_query_handler(func=lambda call: call.data=="IskNOOSAGO")
     def callback_viborRem1(call):
@@ -1318,17 +1359,19 @@ def init_bot(bot_instance, start_handler=None):
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
          
-          
+        id_message = []
  
 
-        bot.edit_message_text(
+        message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="Подготовьте документы:\n1. Выплатное дело\n2. Платежное поручение\n3. Экспертиза",
                 reply_markup=None
                 )
+        id_message.append(message.message_id)
         message = bot.send_message(call.message.chat.id, text="Введите название СТО")
-        bot.register_next_step_handler(message, name_sto, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, name_sto, data, id_message)
     @bot.callback_query_handler(func=lambda call: call.data=="vibor1yes")
     def callback_vibor1yes(call):
          
@@ -1348,16 +1391,16 @@ def init_bot(bot_instance, start_handler=None):
                 text="Выберите подходящий вариант",
                 reply_markup=keyboard
                 )
-        start_handler(message)
+        callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data=="vibor1no")
     def callback_vibor1no(call): 
          
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
-         
+        id_message =[]
           
         data.update({"vibor1": "No"}) 
-        bot.edit_message_text(
+        message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="""Подготовьте документы:
@@ -1366,119 +1409,157 @@ def init_bot(bot_instance, start_handler=None):
                 3. Экспертное заключение""",
                 reply_markup=None
                 )
+        id_message.append(message.message_id)
         message = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
-        bot.register_next_step_handler(message, Nv_ins, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, Nv_ins, data, id_message)
 
-def FIO(message, data):
+def FIO(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text.split())<2:
-            bot.send_message(message.chat.id, text="Неправильный формат ввода".format(message.from_user))
-            bot.register_next_step_handler(message, FIO, data)
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, FIO, data, id_message)
     else:
         data.update({"fio": message.text})
         if len(message.text.split())==2:
             data.update({"fio_k": message.text.split()[0]+" "+list(message.text.split()[1])[0]+"."})
         else:
             data.update({"fio_k": message.text.split()[0]+" "+list(message.text.split()[1])[0]+"."+list(message.text.split()[2])[0]+"."})
-        bot.send_message(message.chat.id, text="Введите серию паспорта".format(message.from_user))
-        bot.register_next_step_handler(message, seria_pasport, data)
+        message = bot.send_message(message.chat.id, text="Введите серию паспорта".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, seria_pasport, data, id_message)
 
-def seria_pasport(message, data):
+def seria_pasport(message, data, id_message):
+        id_message.append(message.message_id)
         if len(message.text.replace(" ", "")) != 4 or not message.text.replace(" ", "").isdigit():
-            bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 4 цифры".format(message.from_user))
-            bot.register_next_step_handler(message, seria_pasport, data)
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 4 цифры".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, seria_pasport, data, id_message)
         else:
             data.update({"seria_pasport": int(message.text.replace(" ", ""))})
-            bot.send_message(message.chat.id, text="Введите номер паспорта".format(message.from_user))
-            bot.register_next_step_handler(message, number_pasport, data)
+            message = bot.send_message(message.chat.id, text="Введите номер паспорта".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, number_pasport, data, id_message)
 
-def number_pasport(message, data):
+def number_pasport(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text.replace(" ", "")) != 6 or not message.text.replace(" ", "").isdigit():
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр".format(message.from_user))
-        bot.register_next_step_handler(message, number_pasport,data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, number_pasport,data, id_message)
     else:
         data.update({"number_pasport": int(message.text.replace(" ", ""))})
-        bot.send_message(message.chat.id, text="Кем выдан паспорт?".format(message.from_user))
-        bot.register_next_step_handler(message, where_pasport, data)
+        message = bot.send_message(message.chat.id, text="Кем выдан паспорт?".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, where_pasport, data, id_message)
 
-def where_pasport(message, data):
+def where_pasport(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"where_pasport": message.text})
-    bot.send_message(message.chat.id, text="Когда выдан паспорт? Введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-    bot.register_next_step_handler(message, when_pasport, data)
+    message = bot.send_message(message.chat.id, text="Когда выдан паспорт? Введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, when_pasport, data, id_message)
 
-def when_pasport(message, data):
+def when_pasport(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"when_pasport": message.text})
-        bot.send_message(message.chat.id, text="Введите адрес проживания клиента".format(message.from_user))
-        bot.register_next_step_handler(message, address, data)
+        message = bot.send_message(message.chat.id, text="Введите адрес проживания клиента".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, address, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода".format(message.from_user))
-        bot.register_next_step_handler(message, when_pasport, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, when_pasport, data, id_message)
 
-def address(message, data):
+def address(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"address": message.text})
-    bot.send_message(message.chat.id, text="Введите почтовый индекс".format(message.from_user))
-    bot.register_next_step_handler(message, index, data)
+    message = bot.send_message(message.chat.id, text="Введите почтовый индекс".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, index, data, id_message)
 
-def index(message, data):
+def index(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text.replace(" ", "")) != 6 or not message.text.replace(" ", "").isdigit():
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр".format(message.from_user))
-        bot.register_next_step_handler(message, index, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, index, data, id_message)
     else:
         data.update({"index_postal": int(message.text.replace(" ", ""))})
-        bot.send_message(message.chat.id, text="Введите номер телефона клиента в формате +79XXXXXXXXX".format(message.from_user))
-        bot.register_next_step_handler(message, number, data)   
+        message = bot.send_message(message.chat.id, text="Введите номер телефона клиента в формате +79XXXXXXXXX".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, number, data, id_message)   
 
-def number(message, data):
+def number(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text) != 12 or not message.text.startswith('+79') or not message.text[3:].isdigit():
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате +79XXXXXXXXX".format(message.from_user))
-        bot.register_next_step_handler(message, number, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате +79XXXXXXXXX".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, number, data, id_message)
     else:
         data.update({"number": message.text})
-        bot.send_message(message.chat.id, text="Введите дату рождения в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_of_birth, data)
+        message = bot.send_message(message.chat.id, text="Введите дату рождения в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_of_birth, data, id_message)
 
-def date_of_birth(message, data):
+def date_of_birth(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_of_birth": message.text})
-        bot.send_message(message.chat.id, text="Введите город рождения клиента".format(message.from_user))
-        bot.register_next_step_handler(message, city_birth, data)
+        message = bot.send_message(message.chat.id, text="Введите город рождения клиента".format(message.from_user))
+        time.sleep(0.1)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, city_birth, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_of_birth, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_of_birth, data, id_message)
 
-def city_birth(message, data):
+def city_birth(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"city_birth": message.text})
     if data['sobstvenik'] == 'Yes':
         data.update({"fio_sobs": "-"})
         data.update({"date_of_birth_sobs": "-"})
-        bot.send_message(message.chat.id, text="Введите дату ДТП в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_dtp, data)
+        message = bot.send_message(message.chat.id, text="Введите дату ДТП в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_dtp, data, id_message)
     else:
-        bot.send_message(message.chat.id, text="Введите ФИО собственника в формате Иванов Иван Иванович".format(message.from_user))
-        bot.register_next_step_handler(message, fio_sobs, data)
+        message = bot.send_message(message.chat.id, text="Введите ФИО собственника в формате Иванов Иван Иванович".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, fio_sobs, data, id_message)
 
-def fio_sobs(message, data):
+def fio_sobs(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text.split())<2:
-            bot.send_message(message.chat.id, text="Неправильный формат ввода".format(message.from_user))
-            bot.register_next_step_handler(message, fio_sobs, data)
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, fio_sobs, data, id_message)
     else:
         data.update({"fio_sobs": message.text})
-        bot.send_message(message.chat.id, text="Введите дату рождения собственника в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_of_birth_sobs, data)
+        message = bot.send_message(message.chat.id, text="Введите дату рождения собственника в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_of_birth_sobs, data, id_message)
 
-def date_of_birth_sobs(message, data):
+def date_of_birth_sobs(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_of_birth_sobs": message.text})
-        bot.send_message(message.chat.id, text="Введите дату ДТП в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_dtp, data)
+        message = bot.send_message(message.chat.id, text="Введите дату ДТП в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_dtp, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_of_birth_sobs, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_of_birth_sobs, data, id_message)
 
-def date_dtp(message, data):
+def date_dtp(message, data,id_message):
+    id_message.append(message.message_id)
     try:
         input_date = datetime.strptime(message.text, "%d.%m.%Y")
 
@@ -1486,46 +1567,59 @@ def date_dtp(message, data):
         three_years_ago = current_date - timedelta(days=3*365 + 1)
 
         if input_date > current_date:
-            bot.send_message(message.chat.id, "Дата ДТП не может быть в будущем! Введите корректную дату")
-            bot.register_next_step_handler(message, date_dtp, data)
+            message = bot.send_message(message.chat.id, "Дата ДТП не может быть в будущем! Введите корректную дату")
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, date_dtp, data, id_message)
             return
         if input_date < three_years_ago:
-            bot.send_message(message.chat.id, "Прошло более трех лет! Введите корректную дату")
-            bot.register_next_step_handler(message, date_dtp, data)
+            message = bot.send_message(message.chat.id, "Прошло более трех лет! Введите корректную дату")
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, date_dtp, data, id_message)
             return
 
         data.update({"date_dtp": message.text})
-        bot.send_message(message.chat.id, text="Введите время ДТП в формате ЧЧ:ММ".format(message.from_user))
-        bot.register_next_step_handler(message, time_dtp, data)
+        message = bot.send_message(message.chat.id, text="Введите время ДТП в формате ЧЧ:ММ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, time_dtp, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_dtp, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_dtp, data, id_message)
 
-def time_dtp(message, data):
+def time_dtp(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text) != 5 or message.text.count(':') != 1:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             "Неправильный формат времени!\n"
             "Введите время в формате ЧЧ:ММ (например: 14:30):"
         )
-        bot.register_next_step_handler(message, time_dtp, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, time_dtp, data, id_message)
         return
     try:
  
         datetime.strptime(message.text, "%H:%M")
 
         data.update({"time_dtp": message.text})
-        bot.send_message(message.chat.id, "Введите адрес ДТП")
-        bot.register_next_step_handler(message, address_dtp, data)    
+        message = bot.send_message(message.chat.id, "Введите адрес ДТП")
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, address_dtp, data, id_message)    
     except ValueError:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id, 
             "Неправильный формат времени!\n"
             "Введите время в формате ЧЧ:ММ (например: 14:30):"
         )
-        bot.register_next_step_handler(message, time_dtp, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, time_dtp, data, id_message)
 
-def address_dtp(message, data):
+def address_dtp(message, data, id_message):
+    id_message.append(message.message_id)
+    for id in id_message:
+        bot.delete_message(message.chat.id, id)
+
+    id_message = []
     data.update({"address_dtp": message.text})
     user_id = message.from_user.id
     user_temp_data[user_id] = data
@@ -1547,11 +1641,14 @@ def address_dtp(message, data):
     )
 
 
-def marks(message, data):
+def marks(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"marks": message.text})
-    bot.send_message(message.chat.id, text="Введите номер авто клиента".format(message.from_user))
-    bot.register_next_step_handler(message, number_auto, data)
-def number_auto(message, data):
+    message = bot.send_message(message.chat.id, text="Введите номер авто клиента".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, number_auto, data, id_message)
+def number_auto(message, data, id_message):
+    id_message.append(message.message_id)
     car_number = message.text.replace(" ", "").upper()  # Приводим к верхнему регистру
     pattern = r'^[А-Я]{1}\d{3}[А-Я]{2}\d{2,3}$'
     
@@ -1561,26 +1658,33 @@ def number_auto(message, data):
     
     if not has_lowercase and re.match(pattern, car_number) and len(car_number) in [8, 9]:
         data.update({"car_number": car_number})
-        bot.send_message(message.chat.id, "Введите год выпуска авто клиента")
-        bot.register_next_step_handler(message, year_auto, data)
+        message = bot.send_message(message.chat.id, "Введите год выпуска авто клиента")
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, year_auto, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             "Неправильный формат!\n"
             "Пример: А123БВ77 или А123БВ777\n"
             "Все буквы должны быть заглавными!"
         )
-        bot.register_next_step_handler(message, number_auto, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, number_auto, data, id_message)
 
-def year_auto(message, data):
+def year_auto(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text.replace(" ", "")) != 4 or not message.text.replace(" ", "").isdigit():
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите корректный год.\nНапример: 2025".format(message.from_user))
-        bot.register_next_step_handler(message, year_auto, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите корректный год.\nНапример: 2025".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, year_auto, data, id_message)
     else:
         data.update({"year_auto": int(message.text.replace(" ", ""))})
+        for i in id_message:
+            bot.delete_message(message.chat.id, i)
+        
         user_id = message.from_user.id
         user_temp_data[user_id] = data
-         
+        id_message = [] 
         keyboard = types.InlineKeyboardMarkup()
 
         btn1 = types.InlineKeyboardButton("Свидетельство о регистрации ТС", callback_data="STS")
@@ -1598,29 +1702,38 @@ def year_auto(message, data):
 
 
 
-def seria_docs(message, data):
+def seria_docs(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"seria_docs": message.text})
-    bot.send_message(message.chat.id, text="Введите номер документа о регистрации ТС".format(message.from_user))
-    bot.register_next_step_handler(message, number_docs, data)
-def number_docs(message, data):
+    message = bot.send_message(message.chat.id, text="Введите номер документа о регистрации ТС".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, number_docs, data, id_message)
+def number_docs(message, data, id_message):
+    id_message.append(message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"number_docs": message.text})
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Введите дату выдачи документа о регистрации ТС в формате ДД.ММ.ГГГГ"
         )
-        bot.register_next_step_handler(message, data_docs, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, data_docs, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! Номер документа должен состоять только из цифр. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, number_docs, data) 
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, number_docs, data, id_message) 
 
-def data_docs(message, data):
+def data_docs(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"data_docs": message.text})
+        for i in id_message:
+            bot.delete_message(message.chat.id, i)
+        id_message=[]
         user_id = message.from_user.id
         user_temp_data[user_id] = data
          
@@ -1646,44 +1759,60 @@ def data_docs(message, data):
         keyboard.add(btn9)
         bot.send_message(message.chat.id, text="Выберите страховую компанию".format(message.from_user), reply_markup=keyboard)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, data_docs, data)
-def other_insurance(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, data_docs, data, id_message)
+def other_insurance(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"insurance": message.text})
-    bot.send_message(message.chat.id, text="Введите серию страхового полиса".format(message.from_user))
-    bot.register_next_step_handler(message, seria_insurance, data)
-def seria_insurance(message, data):
+    message = bot.send_message(message.chat.id, text="Введите серию страхового полиса".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, seria_insurance, data, id_message)
+def seria_insurance(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"seria_insurance": message.text})
-    bot.send_message(message.chat.id, text="Введите номер страхового полиса".format(message.from_user))
-    bot.register_next_step_handler(message, number_insurance, data)
+    message = bot.send_message(message.chat.id, text="Введите номер страхового полиса".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, number_insurance, data, id_message)
 
-def number_insurance(message, data):
+def number_insurance(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"number_insurance": message.text})
-    bot.send_message(message.chat.id, text="Введите дату страхового полиса в формате ДД.ММ.ГГГГ".format(message.from_user))
-    bot.register_next_step_handler(message, date_insurance, data)
-def date_insurance(message, data):
+    message = bot.send_message(message.chat.id, text="Введите дату страхового полиса в формате ДД.ММ.ГГГГ".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, date_insurance, data,id_message)
+def date_insurance(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_insurance": message.text})
-        bot.send_message(message.chat.id, text="Введите ФИО виновника ДТП в формате Иванов Иван Иванович".format(message.from_user))
-        bot.register_next_step_handler(message, fio_culp, data)
+        message = bot.send_message(message.chat.id, text="Введите ФИО виновника ДТП в формате Иванов Иван Иванович".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, fio_culp, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_insurance, data)
-def fio_culp(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_insurance, data, id_message)
+def fio_culp(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text.split())<2:
-            bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате Иванов Иван Иванович".format(message.from_user))
-            bot.register_next_step_handler(message, fio_culp, data)
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате Иванов Иван Иванович".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, fio_culp, data, id_message)
     else:
         data.update({"fio_culp": message.text})
-        bot.send_message(message.chat.id, text="Введите марку, модель виновника ДТП".format(message.from_user))
-        bot.register_next_step_handler(message, marks_culp, data)
+        message = bot.send_message(message.chat.id, text="Введите марку, модель виновника ДТП".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, marks_culp, data, id_message)
 
-def marks_culp(message, data):
+def marks_culp(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"marks_culp": message.text})
-    bot.send_message(message.chat.id, text="Введите номер авто виновника ДТП".format(message.from_user))
-    bot.register_next_step_handler(message, number_auto_culp, data)
-def number_auto_culp(message, data):
+    message = bot.send_message(message.chat.id, text="Введите номер авто виновника ДТП".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, number_auto_culp, data, id_message)
+def number_auto_culp(message, data, id_message):
+    id_message.append(message.message_id)
     car_number = message.text.replace(" ", "").upper()  # Приводим к верхнему регистру
     pattern = r'^[А-Я]{1}\d{3}[А-Я]{2}\d{2,3}$'
     
@@ -1693,66 +1822,82 @@ def number_auto_culp(message, data):
     
     if not has_lowercase and re.match(pattern, car_number) and len(car_number) in [8, 9]:
         data.update({"number_auto_culp": str(car_number)})
-        bot.send_message(message.chat.id, "Введите банк получателя клиента")
-        bot.register_next_step_handler(message, bank, data)
+        message = bot.send_message(message.chat.id, "Введите банк получателя клиента")
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, bank, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             "Неправильный формат!\n"
             "Пример: А123БВ77 или А123БВ777\n"
             "Все буквы должны быть заглавными!"
         )
-        bot.register_next_step_handler(message, number_auto_culp, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, number_auto_culp, data, id_message)
 
-    
-def bank(message, data):
+def bank(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"bank": message.text})
-    bot.send_message(message.chat.id, text="Введите счет получателя".format(message.from_user))
-    bot.register_next_step_handler(message, bank_account, data)
+    message = bot.send_message(message.chat.id, text="Введите счет получателя".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, bank_account, data, id_message)
 
-def bank_account(message, data):
+def bank_account(message, data, id_message):
+    id_message.append(message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"bank_account": message.text})
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Введите корреспондентский счет банка"
         )
-        bot.register_next_step_handler(message, bank_account_corr, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, bank_account_corr, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! Счет должен состоять только из цифр. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, bank_account, data) 
-def bank_account_corr(message, data):
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, bank_account, data, id_message) 
+def bank_account_corr(message, data, id_message):
+    id_message.append(message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"bank_account_corr": message.text})
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Введите БИК банка"
         )
-        bot.register_next_step_handler(message, BIK, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, BIK, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! Счет должен состоять только из цифр. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, bank_account_corr, data)
-def BIK(message, data):
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, bank_account_corr, data, id_message)
+def BIK(message, data, id_message):
+    id_message.append(message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"BIK": message.text})
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Введите ИНН банка"
         )
-        bot.register_next_step_handler(message, INN, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, INN, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! БИК должен состоять только из цифр. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, BIK, data)
-def INN(message, data):
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, BIK, data, id_message)
+def INN(message, data, id_message):
+    id_message.append(message.message_id)
+    for i in id_message:
+        bot.delete_message(message.chat.id, i)
+    id_message = []
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"year": list(str(datetime.now().year))[2]+list(str(datetime.now().year))[3]})
         data.update({"INN": message.text})
@@ -1899,152 +2044,194 @@ def INN(message, data):
         keyboard.add(btn1, btn2)
         bot.send_message(message.chat.id, text="Данные сохранены, отправить вам документы?".format(message.from_user), reply_markup=keyboard)        
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! БИК должен состоять только из цифр. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, INN, data)   
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, INN, data, id_message)   
 
 
-def date_coin_ins(message, data):
+def date_coin_ins(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_coin_ins": message.text})
-        bot.send_message(message.chat.id, text="Введите номер акта осмотра ТС".format(message.from_user))
-        bot.register_next_step_handler(message, Na_ins, data)
+        message = bot.send_message(message.chat.id, text="Введите номер акта осмотра ТС".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, Na_ins, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_coin_ins, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_coin_ins, data, id_message)
 
-def Nv_ins(message, data):
+def Nv_ins(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"Nv_ins": message.text})
-    bot.send_message(message.chat.id, text="Введите номер акта осмотра ТС".format(message.from_user))
-    bot.register_next_step_handler(message, Na_ins, data)
-def Na_ins(message, data):
+    message = bot.send_message(message.chat.id, text="Введите номер акта осмотра ТС".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, Na_ins, data, id_message)
+def Na_ins(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"Na_ins": message.text})
-    bot.send_message(message.chat.id, text="Введите дату акта осмотра ТС".format(message.from_user))
-    bot.register_next_step_handler(message, date_Na_ins, data)
-def date_Na_ins(message, data):
+    message = bot.send_message(message.chat.id, text="Введите дату акта осмотра ТС".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, date_Na_ins, data, id_message)
+def date_Na_ins(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_Na_ins": message.text})
         if data["viborRem"] == "viborRem3":
-            bot.send_message(message.chat.id, text="Введите дату экспертного заключения в формате ДД.ММ.ГГГГ".format(message.from_user))
-            bot.register_next_step_handler(message, date_exp, data)
+            message = bot.send_message(message.chat.id, text="Введите дату экспертного заключения в формате ДД.ММ.ГГГГ".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, date_exp, data, id_message)
         elif data["viborRem"] == "viborRem1":
-            bot.send_message(message.chat.id, text="Введите название СТО".format(message.from_user))
-            bot.register_next_step_handler(message, name_sto, data)
+            message = bot.send_message(message.chat.id, text="Введите название СТО".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, name_sto, data, id_message)
         elif data["dop_osm"] == "Yes":
-            bot.send_message(message.chat.id, text="Введите адрес своего СТО".format(message.from_user))
-            bot.register_next_step_handler(message, address_sto_main, data)
+            message = bot.send_message(message.chat.id, text="Введите адрес своего СТО".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, address_sto_main, data, id_message)
         else:
-            bot.send_message(message.chat.id, text="Введите дату экспертного заключения в формате ДД.ММ.ГГГГ".format(message.from_user))
-            bot.register_next_step_handler(message, date_exp, data)
+            message = bot.send_message(message.chat.id, text="Введите дату экспертного заключения в формате ДД.ММ.ГГГГ".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, date_exp, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_Na_ins, data)
-def date_exp(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_Na_ins, data, id_message)
+def date_exp(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_exp": message.text})
-        bot.send_message(message.chat.id, text="Введите организацию, сделавшую экспертизу".format(message.from_user))
-        bot.register_next_step_handler(message, org_exp, data)
+        message = bot.send_message(message.chat.id, text="Введите организацию, сделавшую экспертизу".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, org_exp, data, id_message)
 
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_exp, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_exp, data, id_message)
 
-def org_exp(message, data):
+def org_exp(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"org_exp": message.text})
-    bot.send_message(message.chat.id, text="Введите цену по экспертизе без учета износа".format(message.from_user))
-    bot.register_next_step_handler(message, coin_exp, data)
-def coin_exp(message, data):
+    message = bot.send_message(message.chat.id, text="Введите цену по экспертизе без учета износа".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, coin_exp, data, id_message)
+def coin_exp(message, data, id_message):
+    id_message.append(message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"coin_exp": message.text})
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Введите цену по экспертизе с учетом износа"
         )
-        bot.register_next_step_handler(message, coin_exp_izn, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, coin_exp_izn, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! Цена должна состоять только из цифр в рублях. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, coin_exp, data)
-def coin_exp_izn(message, data):
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, coin_exp, data, id_message)
+def coin_exp_izn(message, data, id_message):
+    id_message.append(message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"coin_exp_izn": message.text})
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Введите сумму выплаты по ОСАГО"
         )
-        bot.register_next_step_handler(message, coin_osago, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, coin_osago, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! Цена должна состоять только из цифр в рублях. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, coin_exp_izn, data)
-def coin_osago(message, data):
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, coin_exp_izn, data, id_message)
+def coin_osago(message, data, id_message):
+    id_message.append(message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"coin_osago": message.text})
         if data["answer_ins"] =="NOOSAGO":
-            bot.send_message(
+            message = bot.send_message(
             message.chat.id,
             text="Введите серию ВУ виновника ДТП"
             )
-            bot.register_next_step_handler(message, seria_vu_culp, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, seria_vu_culp, data, id_message)
         elif data["viborRem"] == "viborRem1":
-            bot.send_message(
+            message = bot.send_message(
             message.chat.id,
             text="Введите дату передачи авто на СТО"
             )
-            bot.register_next_step_handler(message, date_sto, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, date_sto, data, id_message)
         else:
-            bot.send_message(
+            message = bot.send_message(
                 message.chat.id,
                 text="Введите стоимость услуг нотариуса"
             )
-            bot.register_next_step_handler(message, coin_not, data)
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, coin_not, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! Цена должна состоять только из цифр в рублях. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, coin_osago, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, coin_osago, data, id_message)
 
-def data_otkaz_sto(message, data):
+def data_otkaz_sto(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"data_otkaz_sto": message.text})
-        bot.send_message(message.chat.id, text="Введите стоимость услуг нотариуса".format(message.from_user))
-        bot.register_next_step_handler(message, coin_not, data)
+        message = bot.send_message(message.chat.id, text="Введите стоимость услуг нотариуса".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, coin_not, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, data_otkaz_sto, data)
-def coin_not(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, data_otkaz_sto, data, id_message)
+def coin_not(message, data, id_message):
+    id_message.append(message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"coin_not": message.text})
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Введите номер доверенности"
         )
-        bot.register_next_step_handler(message, N_dov_not, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, N_dov_not, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! Цена должна состоять только из цифр в рублях. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, coin_not, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, coin_not, data, id_message)
 
-def N_dov_not(message, data):
+def N_dov_not(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"N_dov_not": message.text})
-    bot.send_message(message.chat.id, text="Введите дату доверенности".format(message.from_user))
-    bot.register_next_step_handler(message, data_dov_not, data)
-def data_dov_not(message, data):
+    message = bot.send_message(message.chat.id, text="Введите дату доверенности".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, data_dov_not, data, id_message)
+def data_dov_not(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
+        for i in id_message:
+            bot.delete_message(message.chat.id, i)
+        id_message = []
         data.update({"data_dov_not": message.text})
         user_id = message.from_user.id
         user_temp_data[user_id] = data
@@ -2055,15 +2242,20 @@ def data_dov_not(message, data):
         btn2 = types.InlineKeyboardButton("Другое", callback_data="not_other")
         keyboard.add(btn1)
         keyboard.add(btn2)
-        bot.send_message(message.chat.id, text="Выберите ФИО представителя".format(message.from_user), reply_markup = keyboard)
+        bot.send_message(message.chat.id, text="Выберите ФИО представителя",reply_markup=keyboard)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, data_dov_not, data)
-def fio_not(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, data_dov_not, data, id_message)
+def fio_not(message, data, id_message):
     if len(message.text.split())<2:
-            bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате Иванов Иван Иванович".format(message.from_user))
-            bot.register_next_step_handler(message, fio_not, data)
+            id_message.append(message.message_id)
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате Иванов Иван Иванович".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, fio_not, data, id_message)
     else:
+        for i in id_message:
+            bot.delete_message(message.chat.id, i)
         data.update({"fio_not": message.text})
         
         if data["answer_ins"] == "NOOSAGO":
@@ -2097,7 +2289,7 @@ def fio_not(message, data):
                                     str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
                                     str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["date_dtp"]), str(data["time_dtp"]),
                                     str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"])],
-                                    "Шаблоны\\1. ДТП\\Деликт\\Деликт 4. Заявление о выдаче документов от страховой.docx",
+                                    "Шаблоны\\1. ДТП\\Деликт\\Деликт 4. Запрос в страховую о выдаче акта и расчёта.docx",
                                     data["fio"]+"\\"+data["fio"]+"_заявление_о_выдаче_док_страх.docx")
             user_id = message.from_user.id
             user_temp_data[user_id] = data
@@ -2107,7 +2299,12 @@ def fio_not(message, data):
             btn1 = types.InlineKeyboardButton("Да", callback_data="YesNOOSAGO")
             btn2 = types.InlineKeyboardButton("Нет", callback_data="NoNOOSAGO")
             keyboard.add(btn1, btn2)
-            bot.send_message(message.chat.id, text="Данные сохранены, отправить вам документы?".format(message.from_user), reply_markup=keyboard)
+            bot.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+            text="Данные сохранены, отправить вам документы?",
+            reply_markup=keyboard
+            ) 
         else:
             user_id = message.from_user.id
             user_temp_data[user_id] = data
@@ -2118,30 +2315,28 @@ def fio_not(message, data):
             btn2 = types.InlineKeyboardButton("Другое", callback_data="number_not_other")
             keyboard.add(btn1)
             keyboard.add(btn2)
-            bot.edit_message_text(
-            chat_id=message.chat.id,
-            message_id=message.message_id,
-            text="Выберите номер телефона представителя",
-            reply_markup=keyboard
-            ) 
+            bot.send_message(message.chat.id, text="Выберите номер телефона представителя", reply_markup=keyboard)
 
 
-def number_not(message, data):
+
+def number_not(message, data, id_message):
     if len(message.text) != 12 or not message.text.startswith('+79') or not message.text[3:].isdigit():
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате +79XXXXXXXXX".format(message.from_user))
-        bot.register_next_step_handler(message, number_not, data)
+        id_message.append(message.message_id)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате +79XXXXXXXXX".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, number_not, data, id_message)
     else:
+        for i in id_message:
+            bot.delete_message(message.chat.id, i)
         data.update({"number_not": message.text})
         data.update({"date_pret": str(datetime.now().strftime("%d.%m.%Y"))})
         data.update({"analis_ins": "Yes"})
         data.update({"pret_sto": "Yes"})
-        print(data)
         try:
             client_id, updated_data = save_client_to_db_with_id(data)
             data.update(updated_data)
         except Exception as e:
             print(f"Ошибка базы данных: {e}")
-        print(data)
         create_fio_data_file(data)
         if data['vibor'] == "vibor1":
             replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
@@ -2198,17 +2393,20 @@ def number_not(message, data):
         btn1 = types.InlineKeyboardButton("Да", callback_data="YesPr")
         btn2 = types.InlineKeyboardButton("Нет", callback_data="NoPr")
         keyboard.add(btn1, btn2)
-        bot.send_message(message.chat.id, text="Данные сохранены, отправить вам документы?".format(message.from_user), reply_markup=keyboard)
+        bot.send_message(message.chat.id, "Данные сохранены, отправить вам документы?", reply_markup=keyboard)
 
 
-def time_sto(message, data):
+
+def time_sto(message, data,id_message):
+    id_message.append(message.message_id)
     if len(message.text) != 5 or message.text.count(':') != 1:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             "Неправильный формат времени!\n"
             "Введите время в формате ЧЧ:ММ (например: 14:30):"
         )
-        bot.register_next_step_handler(message, time_sto, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, time_sto, data, id_message)
         return
     try:
  
@@ -2216,48 +2414,60 @@ def time_sto(message, data):
 
         data.update({"time_sto": message.text})
         if data["viborRem"]=="viborRem3":
-            bot.send_message(message.chat.id, "Введите город СТО")
-            bot.register_next_step_handler(message, city_sto, data) 
+            message = bot.send_message(message.chat.id, "Введите город СТО")
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, city_sto, data, id_message) 
         else:
-            bot.send_message(message.chat.id, "Введите адрес СТО")
-            bot.register_next_step_handler(message, address_sto, data)    
+            message = bot.send_message(message.chat.id, "Введите адрес СТО")
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, address_sto, data, id_message)    
     except ValueError:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id, 
             "Неправильный формат времени!\n"
             "Введите время в формате ЧЧ:ММ (например: 14:30):"
         )
-        bot.register_next_step_handler(message, time_sto, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, time_sto, data, id_message)
 
 
 
-def data_pret_prin(message, data):
+def data_pret_prin(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"data_pret_prin": message.text})
         if data["viborRem"]=="viborRem1":
-            bot.send_message(message.chat.id, text="Введите номер принятой претензии".format(message.from_user))
-            bot.register_next_step_handler(message, N_pret_prin, data)
+            message = bot.send_message(message.chat.id, text="Введите номер принятой претензии".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, N_pret_prin, data, id_message)
         else:
-            bot.send_message(message.chat.id, text="Введите дату ответа на претензию в формате ДД.ММ.ГГГГ".format(message.from_user))
-            bot.register_next_step_handler(message, data_pret_otv, data)
+            message = bot.send_message(message.chat.id, text="Введите дату ответа на претензию в формате ДД.ММ.ГГГГ".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, data_pret_otv, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, data_pret_prin, data)
-def data_pret_otv(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, data_pret_prin, data, id_message)
+def data_pret_otv(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"data_pret_otv": message.text})
-        bot.send_message(message.chat.id, text="Введите номер принятой претензии".format(message.from_user))
-        bot.register_next_step_handler(message, N_pret_prin, data)
+        message = bot.send_message(message.chat.id, text="Введите номер принятой претензии".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, N_pret_prin, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, data_pret_otv, data)
-def N_pret_prin(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, data_pret_otv, data, id_message)
+def N_pret_prin(message, data, id_message):
+    
     data.update({"N_pret_prin": message.text})
     data.update({"pret": "Yes"})
     data.update({"date_ombuc": str(datetime.now().strftime("%d.%m.%Y"))})
-    print(data)
+    for i in id_message:
+        bot.delete_message(message.chat.id, i)
     try:
         client_id, updated_data = save_client_to_db_with_id(data)
         data.update(updated_data)
@@ -2335,71 +2545,98 @@ def N_pret_prin(message, data):
     bot.send_message(message.chat.id, text="Данные сохранены, отправить вам документы?".format(message.from_user), reply_markup=keyboard)
 
 
-def seria_vu_culp(message, data):
+def seria_vu_culp(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"seria_vu_culp": message.text})
-    bot.send_message(message.chat.id, text="Введите номер ВУ виновника".format(message.from_user))
-    bot.register_next_step_handler(message, number_vu_culp, data)
-def number_vu_culp(message, data):
+    message = bot.send_message(message.chat.id, text="Введите номер ВУ виновника".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, number_vu_culp, data, id_message)
+def number_vu_culp(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"number_vu_culp": message.text})
-    bot.send_message(message.chat.id, text="Введите дату ВУ виновника в формате ДД.ММ.ГГГГ".format(message.from_user))
-    bot.register_next_step_handler(message, data_vu_culp, data)
-def data_vu_culp(message, data):
+    message = bot.send_message(message.chat.id, text="Введите дату ВУ виновника в формате ДД.ММ.ГГГГ".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, data_vu_culp, data, id_message)
+def data_vu_culp(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"data_vu_culp": message.text})
-        bot.send_message(message.chat.id, text="Введите дату рождения виновника в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_of_birth_culp, data)
+        message = bot.send_message(message.chat.id, text="Введите дату рождения виновника в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_of_birth_culp, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, data_vu_culp, data)
-def date_of_birth_culp(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        bot.register_next_step_handler(message, data_vu_culp, data, id_message)
+def date_of_birth_culp(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_of_birth_culp": message.text})
-        bot.send_message(message.chat.id, text="Введите почтовый индекс виновника".format(message.from_user))
-        bot.register_next_step_handler(message, index_culp, data)
+        message = bot.send_message(message.chat.id, text="Введите почтовый индекс виновника".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, index_culp, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_of_birth_culp, data)
-def index_culp(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_of_birth_culp, data, id_message)
+def index_culp(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text.replace(" ", "")) != 6 or not message.text.replace(" ", "").isdigit():
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр".format(message.from_user))
-        bot.register_next_step_handler(message, index_culp, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, index_culp, data, id_message)
     else:
         data.update({"index_culp": int(message.text.replace(" ", ""))})
-        bot.send_message(message.chat.id, text="Введите адрес виновника".format(message.from_user))
-        bot.register_next_step_handler(message, address_culp, data)  
-def address_culp(message, data):
+        message = bot.send_message(message.chat.id, text="Введите адрес виновника".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, address_culp, data, id_message)  
+def address_culp(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"address_culp": message.text})
-    bot.send_message(message.chat.id, text="Введите номер телефона виновника в формате +79XXXXXXXXX".format(message.from_user))
-    bot.register_next_step_handler(message, number_culp, data)
-def number_culp(message, data):
+    message =bot.send_message(message.chat.id, text="Введите номер телефона виновника в формате +79XXXXXXXXX".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, number_culp, data, id_message)
+def number_culp(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text) != 12 or not message.text.startswith('+79') or not message.text[3:].isdigit():
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате +79XXXXXXXXX".format(message.from_user))
-        bot.register_next_step_handler(message, number_culp, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате +79XXXXXXXXX".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, number_culp, data, id_message)
     else:
         data.update({"number_culp": message.text})
-        bot.send_message(message.chat.id, text="Введине номер выплатного дела".format(message.from_user))
-        bot.register_next_step_handler(message, N_viplat_work, data)
-def N_viplat_work(message, data):
+        message = bot.send_message(message.chat.id, text="Введине номер выплатного дела".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, N_viplat_work, data, id_message)
+def N_viplat_work(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"N_viplat_work": message.text})
-    bot.send_message(message.chat.id, text="Введите дату выплатного дела в формате ДД.ММ.ГГГГ".format(message.from_user))
-    bot.register_next_step_handler(message, date_viplat_work, data)
-def date_viplat_work(message, data):
+    message = bot.send_message(message.chat.id, text="Введите дату выплатного дела в формате ДД.ММ.ГГГГ".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, date_viplat_work, data, id_message)
+def date_viplat_work(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_viplat_work": message.text})
-        bot.send_message(message.chat.id, text="Введите номер платежного поручения".format(message.from_user))
-        bot.register_next_step_handler(message, N_plat_por, data)
+        message = bot.send_message(message.chat.id, text="Введите номер платежного поручения".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, N_plat_por, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_viplat_work, data)
-def N_plat_por(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_viplat_work, data, id_message)
+def N_plat_por(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"N_plat_por": message.text})
-    bot.send_message(message.chat.id, text="Введите дату платежного поручения в формате ДД.ММ.ГГГГ".format(message.from_user))
-    bot.register_next_step_handler(message, date_plat_por, data)
-def date_plat_por(message, data):
+    message = bot.send_message(message.chat.id, text="Введите дату платежного поручения в формате ДД.ММ.ГГГГ".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, date_plat_por, data, id_message)
+def date_plat_por(message, data, id_message):
+    id_message.append(message.message_id)
     try:
+        for i in id_message:
+            bot.delete_message(message.chat.id, i)
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_plat_por": message.text})
 
@@ -2429,32 +2666,41 @@ def date_plat_por(message, data):
 
 
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_plat_por, data)
-def sud_other(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_plat_por, data, id_message)
+def sud_other(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"sud": message.text})
-    bot.send_message(message.chat.id, text="Введите стоимость государственной пошлины".format(message.from_user))
-    bot.register_next_step_handler(message, gos_money, data)
-def gos_money(message, data):
+    message = bot.send_message(message.chat.id, text="Введите стоимость государственной пошлины".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, gos_money, data, id_message)
+def gos_money(message, data, id_message):
+    id_message.append(message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"gos_money": message.text})
-        bot.send_message(message.chat.id, text="Введите дату извещения о ДТП".format(message.from_user))
-        bot.register_next_step_handler(message, date_izvesh_dtp, data)
+        message = bot.send_message(message.chat.id, text="Введите дату извещения о ДТП".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_izvesh_dtp, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! Стоимость должна состоять только из цифр в рублях, например: 50000. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, gos_money, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, gos_money, data, id_message)
 
-def date_izvesh_dtp(message, data):
-    #try:
+def date_izvesh_dtp(message, data, id_message):
+    id_message.append(message.message_id)
+    try:
         datetime.strptime(message.text, "%d.%m.%Y")
+        for i in id_message:
+            bot.delete_message(message.chat.id, i)
+        id_message = []   
         data.update({"date_izvesh_dtp": message.text})
         data.update({"ombuc": "Yes"})
         data.update({"date_isk": str(datetime.now().strftime("%d.%m.%Y"))})
         data.update({"Done": "Yes"})
-        print(data)
         try:
             client_id, updated_data = save_client_to_db_with_id(data)
             data.update(updated_data)
@@ -2496,61 +2742,84 @@ def date_izvesh_dtp(message, data):
         btn2 = types.InlineKeyboardButton("Нет", callback_data="NoIsk")
         keyboard.add(btn1, btn2)
         bot.send_message(message.chat.id, text="Данные сохранены, отправить вам документы?".format(message.from_user), reply_markup=keyboard)
-    # except ValueError:
-    #     bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-    #     bot.register_next_step_handler(message, date_izvesh_dtp, data)
+    except ValueError:
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_izvesh_dtp, data, id_message)
 
-def name_sto(message, data):
+def name_sto(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"name_sto": message.text})
-    bot.send_message(message.chat.id, text="Введите ИНН СТО".format(message.from_user))
-    bot.register_next_step_handler(message, inn_sto, data)
-def inn_sto(message, data):
+    message = bot.send_message(message.chat.id, text="Введите ИНН СТО".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, inn_sto, data, id_message)
+def inn_sto(message, data, id_message):
+    id_message.append(message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"inn_sto": message.text})
-        bot.send_message(message.chat.id, text="Введите индекс СТО".format(message.from_user))
-        bot.register_next_step_handler(message, index_sto, data)
+        message = bot.send_message(message.chat.id, text="Введите индекс СТО".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, index_sto, data, id_message)
     else:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             text="Неправильный формат! ИНН должен состоять только из цифр. Попробуйте ещё раз."
         )
-        bot.register_next_step_handler(message, inn_sto, data)
-def index_sto(message, data):
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, inn_sto, data, id_message)
+def index_sto(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text.replace(" ", "")) != 6 or not message.text.replace(" ", "").isdigit():
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр".format(message.from_user))
-        bot.register_next_step_handler(message, index_sto, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, index_sto, data, id_message)
     else:
         data.update({"index_sto": message.text})
-        bot.send_message(message.chat.id, text="Введите адрес СТО".format(message.from_user))
-        bot.register_next_step_handler(message, address_sto, data) 
-def address_sto(message, data):
+        message = bot.send_message(message.chat.id, text="Введите адрес СТО".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, address_sto, data, id_message) 
+def address_sto(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"address_sto": message.text})
-    bot.send_message(message.chat.id, text="Введите город СТО".format(message.from_user))
-    bot.register_next_step_handler(message, city_sto, data)
-def city_sto(message, data):
+    message = bot.send_message(message.chat.id, text="Введите город СТО".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, city_sto, data, id_message)
+def city_sto(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"city_sto": message.text})
-    bot.send_message(message.chat.id, "Введите номер направления СТО")
-    bot.register_next_step_handler(message, N_sto, data) 
-def N_sto(message, data):
+    message = bot.send_message(message.chat.id, "Введите номер направления СТО")
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, N_sto, data, id_message) 
+def N_sto(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"N_sto": message.text})
-    bot.send_message(message.chat.id, text="Введите дату направления на СТО".format(message.from_user))
-    bot.register_next_step_handler(message, date_napr_sto, data)
-def date_napr_sto(message, data):
+    message = bot.send_message(message.chat.id, text="Введите дату направления на СТО".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, date_napr_sto, data, id_message)
+def date_napr_sto(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_napr_sto": message.text})
         if data["viborRem"]=="viborRem3":
-            bot.send_message(message.chat.id, text="Введите входящий номер в страховую".format(message.from_user))
-            bot.register_next_step_handler(message, Nv_ins, data)
+            message = bot.send_message(message.chat.id, text="Введите входящий номер в страховую".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, Nv_ins, data, id_message)
         else:
-            bot.send_message(message.chat.id, text="Введите дату экспертного заключения".format(message.from_user))
-            bot.register_next_step_handler(message, date_exp, data)
+            message = bot.send_message(message.chat.id, text="Введите дату экспертного заключения".format(message.from_user))
+            id_message.append(message.message_id)
+            bot.register_next_step_handler(message, date_exp, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_napr_sto, data)
-def date_sto(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_napr_sto, data, id_message)
+def date_sto(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
+        for i in id_message:
+            bot.delete_message(message.chat.id, i)
+
         data.update({"date_sto": message.text})
         data.update({"date_zayav_sto": str(datetime.now().strftime("%d.%m.%Y"))})
 
@@ -2586,35 +2855,45 @@ def date_sto(message, data):
 
     
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_sto, data)
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_sto, data, id_message)
 
-def address_sto_main(message, data):
+def address_sto_main(message, data, id_message):
+    id_message.append(message.message_id)
     data.update({"address_sto_main": message.text})
-    bot.send_message(message.chat.id, text="Введите дату записи в свое СТО".format(message.from_user))
-    bot.register_next_step_handler(message, date_sto_main, data)
-def date_sto_main(message, data):
+    message = bot.send_message(message.chat.id, text="Введите дату записи в свое СТО".format(message.from_user))
+    id_message.append(message.message_id)
+    bot.register_next_step_handler(message, date_sto_main, data, id_message)
+def date_sto_main(message, data, id_message):
+    id_message.append(message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_sto_main": message.text})
-        bot.send_message(message.chat.id, text="Введите время записи в свое СТО".format(message.from_user))
-        bot.register_next_step_handler(message, time_sto_main, data)
+        message = bot.send_message(message.chat.id, text="Введите время записи в свое СТО".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, time_sto_main, data, id_message)
     except ValueError:
-        bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
-        bot.register_next_step_handler(message, date_sto_main, data)
-def time_sto_main(message, data):
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода, введите в формате ДД.ММ.ГГГГ".format(message.from_user))
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, date_sto_main, data, id_message)
+def time_sto_main(message, data, id_message):
+    id_message.append(message.message_id)
     if len(message.text) != 5 or message.text.count(':') != 1:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             "Неправильный формат времени!\n"
             "Введите время в формате ЧЧ:ММ (например: 14:30):"
         )
-        bot.register_next_step_handler(message, time_sto_main, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, time_sto_main, data, id_message)
         return
     try:
  
         datetime.strptime(message.text, "%H:%M")
-
+        for i in id_message:
+            bot.delete_message(message.chat.id, i)
+        id_message = []
         data.update({"time_sto_main": message.text})
         data.update({"dop_osm": "Yes"})
         data.update({"data_dop_osm": str(datetime.now().strftime("%d.%m.%Y"))})
@@ -2649,9 +2928,10 @@ def time_sto_main(message, data):
         keyboard.add(btn1, btn2)
         bot.send_message(message.chat.id, text="Данные сохранены, отправить вам документы?".format(message.from_user), reply_markup=keyboard)
     except ValueError:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id, 
             "Неправильный формат времени!\n"
             "Введите время в формате ЧЧ:ММ (например: 14:30):"
         )
-        bot.register_next_step_handler(message, time_sto_main, data)
+        id_message.append(message.message_id)
+        bot.register_next_step_handler(message, time_sto_main, data, id_message)
