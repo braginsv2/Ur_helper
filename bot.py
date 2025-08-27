@@ -4,21 +4,28 @@ from config import TOKEN
 import dtp
 import pit
 import no_osago
+import podal_z
 from word_utils import create_fio_data_file, export_clients_db_to_excel
 import json
 import sqlite3
 import time
 import os
+import threading
+from collections import defaultdict
 from database import DatabaseManager, get_client_from_db_by_client_id, search_clients_by_fio_in_db
 from telebot.apihelper import ApiException
 from telebot.handler_backends import ContinueHandling, CancelUpdate
+
 bot = telebot.TeleBot(TOKEN)
 db = DatabaseManager()
 
+list_file ={}
+media_groups_buffer = defaultdict(list)
+media_group_timers = {}
 
 @bot.message_handler(commands=['start'])
 def start_handler(message):
-    clear_chat_history_optimized(message, 50)
+    #clear_chat_history_optimized(message, 50)
     keyboard = types.InlineKeyboardMarkup()
     
     btn1 = types.InlineKeyboardButton("Добавить клиента", callback_data="btn_new_client")
@@ -34,7 +41,7 @@ def start_handler(message):
     )
 def callback_client_details2(message, client_id):
     """Показываем детали клиента и проверяем answer_ins"""
-
+    clear_chat_history_optimized(message, 3)
     print(f"DEBUG callback_client_details: client_id = {client_id}")
     try:
         user_id = message.from_user.id
@@ -142,15 +149,23 @@ def callback_client_details2(message, client_id):
                 keyboard.add(types.InlineKeyboardButton(
                     "📝 Продолжить заполнение", 
                     callback_data="pit_next"))
+        elif client['accident']=='net_osago' and client['Done'] !="Yes":
+            if analis_ins =="Yes":
+                user_id = message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="NO_next"))
         keyboard.add(types.InlineKeyboardButton("🔍 Новый поиск", callback_data="btn_search_database"))
         keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu"))
         keyboard.add(types.InlineKeyboardButton("Редактирование данных", callback_data="edit_db"))
         keyboard.add(types.InlineKeyboardButton("Просмотр данных", callback_data="view_db"))
         keyboard.add(types.InlineKeyboardButton("Просмотр ранее созданных документов", callback_data="view_docs"))
         keyboard.add(types.InlineKeyboardButton("Загрузить документы", callback_data="download_docs"))
-        bot.edit_message_text(
+        bot.send_message(
             chat_id=message.chat.id,
-            message_id=message.message_id,
             text=details,
             reply_markup=keyboard
         )
@@ -160,20 +175,24 @@ def callback_client_details2(message, client_id):
 dtp.init_bot(bot, start_handler, callback_client_details2)
 pit.init_bot(bot, start_handler, callback_client_details2)
 no_osago.init_bot(bot, start_handler, callback_client_details2)
-
+podal_z.init_bot(bot, start_handler, callback_client_details2)
 @bot.callback_query_handler(func=lambda call: call.data == "btn_new_client")
 def callback_handler(call):
-    clear_chat_history_optimized(call.message, 100)
+    clear_chat_history_optimized(call.message, 1)
     import dtp
     import pit
     import no_osago
+    import podal_z
     keyboard = types.InlineKeyboardMarkup()
     btn1 = types.InlineKeyboardButton("Только с ДТП", callback_data="btn_dtp")
     btn2 = types.InlineKeyboardButton("Подал заявление", callback_data="btn_podal_zayavl")
     btn3 = types.InlineKeyboardButton("После ямы", callback_data="btn_pit")
     btn4 = types.InlineKeyboardButton("Нет Осаго", callback_data="btn_net_osago")
+    btn5 = types.InlineKeyboardButton("Главное меню", callback_data="btn_main_menu")
     keyboard.add(btn1)
     keyboard.add(btn3)
+    keyboard.add(btn4)
+    keyboard.add(btn5)
     bot.send_message(
         call.message.chat.id, 
         "Выберите дальнейшие действия", 
@@ -186,9 +205,10 @@ def callback_output(call):
     
     try:
         # Уведомляем о начале процесса
-        bot.send_message(
-            chat_id,
-            "⏳ База данных выгружается, подождите...",
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="⏳ База данных выгружается, подождите...",
             reply_markup=None
         )
         
@@ -196,16 +216,21 @@ def callback_output(call):
         success = export_clients_db_to_excel("clients.db", file_path)
         
         if success and os.path.exists(file_path):
+            keyboard = types.InlineKeyboardMarkup()
+            btn1 = types.InlineKeyboardButton("Главное меню", callback_data="btn_main_menu")
+            keyboard.add(btn1)
             # Отправляем файл
             with open(file_path, 'rb') as document_file:
                 bot.send_document(
                     chat_id,
                     document_file,
-                    caption="📊 Экспорт базы данных клиентов"
+                    caption="📊 Экспорт базы данных клиентов",
+                    reply_markup=keyboard
                 )
             
             # Удаляем файл после успешной отправки
             try:
+                bot.delete_message(message.chat.id, message.message_id)
                 os.remove(file_path)
                 print(f"✅ Файл {file_path} успешно удален")
             except OSError as e:
@@ -233,9 +258,6 @@ def callback_output(call):
         )
         print(f"Ошибка в callback_output: {e}")
     
-    finally:
-        # Возвращаемся в главное меню
-        start_handler(call.message)
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_search_database")
 def callback_search_database(call):
@@ -245,9 +267,9 @@ def callback_search_database(call):
         text="🔍 Введите фамилию и имя клиента для поиска:",
         reply_markup=None
     )
-    
+    user_message_id = message.message_id
     # Регистрируем следующий обработчик для ввода поискового запроса
-    bot.register_next_step_handler(message, search_clients_handler)
+    bot.register_next_step_handler(message, search_clients_handler, user_message_id)
 
 def search_clients_by_fio(search_term):
     """Улучшенный поиск клиентов по ФИО"""
@@ -419,13 +441,16 @@ def search_clients_by_fio(search_term):
     
     return result_dicts
 
-def search_clients_handler(message):
+def search_clients_handler(message, user_message_id):
     """Обработчик поиска клиентов по ФИО"""
+    bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, message.message_id)
     search_term = message.text.strip()
     
     if len(search_term) < 2:
-        bot.send_message(message.chat.id, "❌ Введите минимум 2 символа для поиска")
-        bot.register_next_step_handler(message, search_clients_handler)
+        message = bot.send_message(message.chat.id, "❌ Введите минимум 2 символа для поиска")
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, search_clients_handler, user_message_id)
         #return_to_main_menu(message)
         return
     
@@ -446,7 +471,9 @@ def search_clients_handler(message):
             pass
         
         if not results:
-            bot.send_message(message.chat.id, f"❌ Клиенты с ФИО '{search_term}' не найдены")
+            message = bot.send_message(message.chat.id, f"❌ Клиенты с ФИО '{search_term}' не найдены")
+            time.sleep(1)
+            bot.delete_message(message.chat.id, message.message_id)
             return_to_main_menu(message)
             return
 
@@ -491,6 +518,13 @@ def callback_client_details(call):
     """Показываем детали клиента и проверяем answer_ins"""
     user_id = call.message.from_user.id
     client_id = call.data.replace("client_details_", "")
+    try:
+        for i in list_file[user_id]:
+            bot.delete_message(call.message.chat.id, i)
+            time.sleep(0.2)
+        del list_file[user_id]
+    except:
+        pass
     print(f"DEBUG callback_client_details: user_id = {user_id}")
     print(f"DEBUG callback_client_details: client_id = {client_id}")
     try:
@@ -599,6 +633,15 @@ def callback_client_details(call):
                 keyboard.add(types.InlineKeyboardButton(
                     "📝 Продолжить заполнение", 
                     callback_data="pit_next"))
+        elif client['accident']=='net_osago' and client['Done'] !="Yes":
+            if analis_ins =="Yes":
+                user_id = call.message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="NO_next"))
         keyboard.add(types.InlineKeyboardButton("🔍 Новый поиск", callback_data="btn_search_database"))
         keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu"))
         keyboard.add(types.InlineKeyboardButton("Редактирование данных", callback_data="edit_db"))
@@ -625,9 +668,11 @@ def callback_main_menu(call):
     keyboard = types.InlineKeyboardMarkup()
     btn1 = types.InlineKeyboardButton("Добавить клиента", callback_data="btn_new_client")
     btn2 = types.InlineKeyboardButton("Искать в базе", callback_data="btn_search_database")
+    btn3 = types.InlineKeyboardButton("Скачать базу данных", callback_data="btn_output")
     keyboard.add(btn1)
     keyboard.add(btn2)
-    clear_chat_history_optimized(call.message, 30)
+    keyboard.add(btn3)
+    clear_chat_history_optimized(call.message, 1)
     bot.send_message(
         call.message.chat.id,
         "Выберите дальнейшие действия",
@@ -636,15 +681,17 @@ def callback_main_menu(call):
 
 def return_to_main_menu(message):
     """Возврат в главное меню через новое сообщение"""
-    clear_chat_history_optimized(message, 30)
+    clear_chat_history_optimized(message, 2)
     user_id = message.from_user.id
     if user_id in dtp.user_temp_data:
         del dtp.user_temp_data[user_id]
     keyboard = types.InlineKeyboardMarkup()
     btn1 = types.InlineKeyboardButton("Добавить клиента", callback_data="btn_new_client")
     btn2 = types.InlineKeyboardButton("Искать в базе", callback_data="btn_search_database")
+    btn3 = types.InlineKeyboardButton("Скачать базу данных", callback_data="btn_output")
     keyboard.add(btn1)
     keyboard.add(btn2)
+    keyboard.add(btn3)
     bot.send_message(
         message.chat.id,
         "Выберите дальнейшие действия",
@@ -732,8 +779,9 @@ def callback_edit_data(call):
             message_id=call.message.message_id,
             text=message_text,
         )
+        user_message_id = call.message.message_id
 
-        bot.register_next_step_handler(new_message, handle_parameter_input, user_id)
+        bot.register_next_step_handler(new_message, handle_parameter_input, user_id, user_message_id)
         
     except Exception as e:
         bot.answer_callback_query(call.id, f"Ошибка: {e}")
@@ -805,7 +853,7 @@ def callback_view_data(call):
         
 
         keyboard = types.InlineKeyboardMarkup()
-        btn1 = types.InlineKeyboardButton("Назад", callback_data=f"client_details_{client_id}")
+        btn1 = types.InlineKeyboardButton("Карточка клиента", callback_data=f"client_details_{client_id}")
         keyboard.add(btn1)
         # Отправляем сообщение и регистрируем обработчик
         new_message = bot.edit_message_text(
@@ -820,9 +868,10 @@ def callback_view_data(call):
         print(f"Ошибка в callback_view_data: {e}")
 
 
-def handle_parameter_input(message, user_id):
+def handle_parameter_input(message, user_id, user_message_id):
     """Обработка ввода названия параметра"""
-    
+    bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, message.message_id)
     print(f"DEBUG: user_id = {user_id}")
     print(f"DEBUG: user_temp_data keys = {list(dtp.user_temp_data.keys())}")
     print(f"DEBUG: user in user_temp_data = {user_id in dtp.user_temp_data}")
@@ -869,12 +918,13 @@ def handle_parameter_input(message, user_id):
         message.chat.id,
         f"Введите новое значение для параметра '{parameter_name}':"
     )
-    
-    bot.register_next_step_handler(response_message, handle_value_input, user_id)
+    user_message_id = response_message.message_id
+    bot.register_next_step_handler(response_message, handle_value_input, user_id, user_message_id)
 
-def handle_value_input(message, user_id):
+def handle_value_input(message, user_id, user_message_id):
     """Обработка ввода нового значения параметра"""
-
+    bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, message.message_id)
     
     if user_id not in dtp.user_temp_data or 'editing_client' not in dtp.user_temp_data[user_id]:
         bot.send_message(message.chat.id, "Ошибка: данные редактирования не найдены")
@@ -898,22 +948,23 @@ def handle_value_input(message, user_id):
         # Обновляем базу данных
         update_client_in_database(client_id, db_field, new_value)
         
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
             f"Параметр '{parameter_name}' успешно обновлен на значение '{new_value}'"
         )
-        
+        time.sleep(2)
+        bot.delete_message(message.chat.id, message.message_id)
         # Очищаем временные данные
         if user_id in dtp.user_temp_data and 'editing_client' in dtp.user_temp_data[user_id]:
             del dtp.user_temp_data[user_id]['editing_client']
-        
+
+        callback_client_details2(message, client_id)
         # Возвращаемся в главное меню
-        return_to_main_menu(message)
         
     except Exception as e:
         bot.send_message(message.chat.id, f"Ошибка при обновлении: {e}")
         print(f"Ошибка при обновлении данных: {e}")
-        return_to_main_menu(message)
+        callback_client_details2(message, client_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "view_docs")
 def callback_view_docs(call):
@@ -939,7 +990,7 @@ def callback_view_docs(call):
                 message_id=call.message.message_id,
                 text=f"Папка документов клиента '{fio}' не найдена",
                 reply_markup=types.InlineKeyboardMarkup([
-                    [types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu")]
+                    [types.InlineKeyboardButton("Карточка клиента", callback_data=f"client_details_{client_data['client_id']}")]
                 ])
             )
             return
@@ -960,7 +1011,7 @@ def callback_view_docs(call):
                 message_id=call.message.message_id,
                 text=f"В папке документов клиента '{fio}' нет файлов",
                 reply_markup=types.InlineKeyboardMarkup([
-                    [types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu")]
+                    [types.InlineKeyboardButton("Карточка клиента", callback_data=f"client_details_{client_data['client_id']}")]
                 ])
             )
             return
@@ -987,9 +1038,9 @@ def callback_view_docs(call):
             message_text += f"{i}. {filename}\n"
 
         message_text += "\nВыберите номер файла для отправки:"
-
         # Создаем кнопки с номерами (по 5 кнопок в ряд)
         buttons_per_row = 5
+        list_file.update({user_id:[]})
         for i in range(0, len(sorted_files), buttons_per_row):
             row_buttons = []
             for j in range(i, min(i + buttons_per_row, len(sorted_files))):
@@ -999,7 +1050,7 @@ def callback_view_docs(call):
             keyboard.row(*row_buttons)
 
         # Кнопка главного меню
-        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu"))
+        keyboard.add(types.InlineKeyboardButton("Карточка клиента", callback_data=f"client_details_{client_data['client_id']}"))
 
         # Сохраняем список файлов и путь к папке для последующей отправки
         if user_id not in dtp.user_temp_data:
@@ -1047,12 +1098,12 @@ def callback_send_file(call):
         # Отправляем файл
         try:
             with open(file_path, 'rb') as file:
-                bot.send_document(
+                message = bot.send_document(
                     call.message.chat.id,
                     file,
                     caption=f"Документ: {filename}"
                 )
-            
+            list_file[user_id].append(message.message_id)
             bot.answer_callback_query(call.id, f"Файл {filename} отправлен")
             
         except Exception as e:
@@ -1101,7 +1152,8 @@ def callback_download_docs(call):
             'uploaded_count': 0,
             'uploaded_files': [],
             'client_dir': client_dir,
-            'fio': fio
+            'fio': fio,
+            'media_group': []
         }
         
         # Создаем клавиатуру с кнопкой завершения
@@ -1122,15 +1174,15 @@ def callback_download_docs(call):
             text=message_text,
             reply_markup=keyboard
         )
-        
+        user_message_id = new_message.message_id
         # Регистрируем обработчик для получения документов
-        bot.register_next_step_handler(new_message, handle_document_upload, user_id)
+        bot.register_next_step_handler(new_message, handle_document_upload, user_message_id, user_id)
         
     except Exception as e:
         bot.answer_callback_query(call.id, f"Ошибка: {e}")
         print(f"Ошибка в callback_download_docs: {e}")
 
-def handle_document_upload(message, user_id=None):
+def handle_document_upload(message, user_message_id, user_id=None):
     """Обработка загружаемых документов"""
     if user_id is None:
         user_id = message.from_user.id
@@ -1186,13 +1238,15 @@ def handle_document_upload(message, user_id=None):
             # Проверяем кнопки завершения/отмены
             if message.text in ["Завершить загрузку", "Отмена"]:
                 return
-            
-            bot.send_message(
+            bot.delete_message(message.chat.id, message.message_id)
+            message = bot.send_message(
                 message.chat.id,
                 "Неподдерживаемый тип файла. Пожалуйста, отправьте документ, фото, видео или аудио."
             )
+            time.sleep(2)
+            bot.delete_message(message.chat.id, message.message_id)
             # Продолжаем ожидать следующий файл
-            bot.register_next_step_handler(message, handle_document_upload, user_id)
+            bot.register_next_step_handler(message, handle_document_upload, user_message_id, user_id)
             return
         
         # Получаем информацию о файле
@@ -1222,7 +1276,8 @@ def handle_document_upload(message, user_id=None):
         dtp.user_temp_data[user_id]['uploading_docs']['uploaded_files'].append(filename)
         
         uploaded_count = dtp.user_temp_data[user_id]['uploading_docs']['uploaded_count']
-        
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, message.message_id)
         # Создаем клавиатуру с кнопками
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Завершить загрузку", callback_data="finish_upload"))
@@ -1235,19 +1290,21 @@ def handle_document_upload(message, user_id=None):
             response_text,
             reply_markup=keyboard
         )
-        
+        user_message_id = response_message.message_id
         # Продолжаем ожидать следующие файлы
-        bot.register_next_step_handler(response_message, handle_document_upload, user_id)
+        bot.register_next_step_handler(response_message, handle_document_upload, user_message_id, user_id)
         
     except Exception as e:
-        bot.send_message(
+        bot.delete_message(message.chat.id, message.message_id)
+        message = bot.send_message(
             message.chat.id,
             f"Ошибка при сохранении файла: {e}"
         )
         print(f"Ошибка сохранения файла: {e}")
-        
+        time.sleep(2)
+        bot.delete_message(message.chat.id, message.message_id)
         # Продолжаем ожидать следующие файлы даже при ошибке
-        bot.register_next_step_handler(message, handle_document_upload, user_id)
+        bot.register_next_step_handler(message, handle_document_upload, user_message_id, user_id)
 def update_client_in_database(client_id, db_field, new_value):
     """Обновление данных клиента в базе данных"""
     try:
@@ -1357,7 +1414,7 @@ def callback_finish_upload(call):
         
         # Небольшая задержка перед возвратом в главное меню
         time.sleep(2)
-        return_to_main_menu_from_call(call)
+        callback_client_details2(call.message, dtp.user_temp_data[user_id]['client_id'])
         
     except Exception as e:
         bot.answer_callback_query(call.id, f"Ошибка: {e}")
@@ -1379,16 +1436,16 @@ def callback_cancel_upload(call):
             message_id=call.message.message_id,
             text="Загрузка документов отменена."
         )
-        
+        client_id = dtp.user_temp_data[user_id]['client_id']
         time.sleep(1)
-        return_to_main_menu_from_call(call)
+        callback_client_details2(call.message, client_id)
         
     except Exception as e:
         bot.answer_callback_query(call.id, f"Ошибка: {e}")
         print(f"Ошибка в callback_cancel_upload: {e}")
 
 def return_to_main_menu_from_call(call):
-    clear_chat_history_optimized(call.message, 30)
+    clear_chat_history_optimized(call.message, 2)
     """Возврат в главное меню из callback"""
     try:
         user_id = call.message.from_user.id
@@ -1398,8 +1455,10 @@ def return_to_main_menu_from_call(call):
         keyboard = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton("Добавить клиента", callback_data="btn_new_client")
         btn2 = types.InlineKeyboardButton("Искать в базе", callback_data="btn_search_database")
+        btn3 = types.InlineKeyboardButton("Скачать базу данных", callback_data="btn_output")
         keyboard.add(btn1)
         keyboard.add(btn2)
+        keyboard.add(btn3)
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -1412,9 +1471,10 @@ def return_to_main_menu_from_call(call):
         keyboard = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton("Добавить клиента", callback_data="btn_new_client")
         btn2 = types.InlineKeyboardButton("Искать в базе", callback_data="btn_search_database")
+        btn3 = types.InlineKeyboardButton("Скачать базу данных", callback_data="btn_output")
         keyboard.add(btn1)
         keyboard.add(btn2)
-        
+        keyboard.add(btn3)
         bot.send_message(
             call.message.chat.id,
             "Выберите дальнейшие действия",

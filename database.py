@@ -128,7 +128,8 @@ class DatabaseManager:
             date_kv_not TEXT,
             N_kv_ur TEXT,
             date_kv_ur TEXT,
-            N_kv_exp TEXT
+            N_kv_exp TEXT,
+            status TEXT
                      
         )
         ''')
@@ -312,7 +313,8 @@ class DatabaseManager:
                 'date_kv_not':merged_data.get('date_kv_not', ''),
                 'N_kv_ur':merged_data.get('N_kv_ur', ''),
                 'date_kv_ur':merged_data.get('date_kv_ur', ''),
-                'N_kv_exp': merged_data.get('N_kv_exp', '')
+                'N_kv_exp': merged_data.get('N_kv_exp', ''),
+                'status': merged_data.get('status', '')
 
             }
             
@@ -334,7 +336,7 @@ class DatabaseManager:
                 index_culp=?,address_culp=?,number_culp=?, N_viplat_work=?,date_viplat_work=?, N_plat_por=?,date_plat_por=?,sud=?,gos_money=?,
                 date_izvesh_dtp=?, date_isk=?, dop_osm=?, ev=?, fio_k=?, data_dop_osm=?, viborRem=?,date_zayav_sto=?, pret_sto=?,data_otkaz_sto=?,date_napr_sto=?,
                 address_sto_main=?,data_sto_main=?, time_sto_main=?, city_sto=?, Done=?, city=?, year=?, street=?, N_gui=?, date_gui=?, N_prot=?, date_prot=?,
-                date_road=?, N_kv_not=?, date_kv_not=?, N_kv_ur=?, date_kv_ur=?,N_kv_exp=?
+                date_road=?, N_kv_not=?, date_kv_not=?, N_kv_ur=?, date_kv_ur=?,N_kv_exp=?, status=?
             WHERE client_id=?
             '''
             
@@ -479,7 +481,8 @@ class DatabaseManager:
                 'date_kv_not': data.get('date_kv_not', ''),
                 'N_kv_ur': data.get('N_kv_ur', ''),
                 'date_kv_ur': data.get('date_kv_ur', ''),
-                'N_kv_exp': data.get('N_kv_exp', '')
+                'N_kv_exp': data.get('N_kv_exp', ''),
+                'status': data.get('status', ''),
             }
             
             # SQL запрос для вставки
@@ -500,8 +503,8 @@ class DatabaseManager:
                 index_culp ,address_culp ,number_culp , N_viplat_work ,date_viplat_work , N_plat_por ,date_plat_por ,sud ,gos_money ,
                 date_izvesh_dtp , date_isk,dop_osm, ev, fio_k,data_dop_osm, viborRem,date_zayav_sto,pret_sto, data_otkaz_sto,date_napr_sto,
                 address_sto_main,data_sto_main,time_sto_main, city_sto, Done, city,year, street, N_gui, date_gui, N_prot,date_prot, date_road,
-                N_kv_not, date_kv_not, N_kv_ur, date_kv_ur,N_kv_exp 
-            ) VALUES (?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?,?, ?,?,?,?, ?, ?,?,?,?, ?,?,?,?,?, ?, ?, ?, ?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                N_kv_not, date_kv_not, N_kv_ur, date_kv_ur,N_kv_exp, status 
+            ) VALUES (?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?, ?, ?,?, ?,?,?,?, ?, ?,?,?,?, ?,?,?,?,?, ?, ?, ?, ?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             '''
             
             try:
