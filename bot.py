@@ -69,6 +69,7 @@ def callback_client_details2(message, client_id):
 📍 Адрес ДТП: {client_data.get('address_dtp', 'Не указан')}
 🏢 Страховая: {client.get('insurance', 'Не указана')}
 🆔 Собственник: {'Да' if client_data.get('sobstvenik') == 'Yes' else 'Нет'}
+📊 Статус: {client.get('status', 'Зарегистрирован')}
 """
         dop_osm =client.get('dop_osm', '') or client_data.get('dop_osm', '')
         answer_ins = client.get('answer_ins', '') or client_data.get('answer_ins', '')
@@ -160,10 +161,10 @@ def callback_client_details2(message, client_id):
                     callback_data="NO_next"))
         keyboard.add(types.InlineKeyboardButton("🔍 Новый поиск", callback_data="btn_search_database"))
         keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu"))
-        keyboard.add(types.InlineKeyboardButton("Редактирование данных", callback_data="edit_db"))
-        keyboard.add(types.InlineKeyboardButton("Просмотр данных", callback_data="view_db"))
-        keyboard.add(types.InlineKeyboardButton("Просмотр ранее созданных документов", callback_data="view_docs"))
-        keyboard.add(types.InlineKeyboardButton("Загрузить документы", callback_data="download_docs"))
+        keyboard.add(types.InlineKeyboardButton("✏️ Редактирование данных", callback_data="edit_db"))
+        keyboard.add(types.InlineKeyboardButton("📋 Просмотр данных", callback_data="view_db"))
+        keyboard.add(types.InlineKeyboardButton("📂 Просмотр ранее созданных документов", callback_data="view_docs"))
+        keyboard.add(types.InlineKeyboardButton("📤 Загрузить документы", callback_data="download_docs"))
         bot.send_message(
             chat_id=message.chat.id,
             text=details,
@@ -172,6 +173,7 @@ def callback_client_details2(message, client_id):
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
         print(f"Ошибка получения данных клиента: {e}")
+
 dtp.init_bot(bot, start_handler, callback_client_details2)
 pit.init_bot(bot, start_handler, callback_client_details2)
 no_osago.init_bot(bot, start_handler, callback_client_details2)
@@ -190,6 +192,7 @@ def callback_handler(call):
     btn4 = types.InlineKeyboardButton("Нет Осаго", callback_data="btn_net_osago")
     btn5 = types.InlineKeyboardButton("Главное меню", callback_data="btn_main_menu")
     keyboard.add(btn1)
+    keyboard.add(btn2)
     keyboard.add(btn3)
     keyboard.add(btn4)
     keyboard.add(btn5)
@@ -553,6 +556,7 @@ def callback_client_details(call):
 📍 Адрес ДТП: {client_data.get('address_dtp', 'Не указан')}
 🏢 Страховая: {client.get('insurance', 'Не указана')}
 🆔 Собственник: {'Да' if client_data.get('sobstvenik') == 'Yes' else 'Нет'}
+📊 Статус: {client.get('status', 'Зарегистрирован')}
 """
         dop_osm =client.get('dop_osm', '') or client_data.get('dop_osm', '')
         answer_ins = client.get('answer_ins', '') or client_data.get('answer_ins', '')
@@ -642,12 +646,21 @@ def callback_client_details(call):
                 keyboard.add(types.InlineKeyboardButton(
                     "📝 Продолжить заполнение", 
                     callback_data="NO_next"))
+        elif client['accident']=='podal_zayavl' and client['Done'] !="Yes":
+            if client['vibor1'] =='':
+                user_id = call.message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="podal_zayavl_next"))
         keyboard.add(types.InlineKeyboardButton("🔍 Новый поиск", callback_data="btn_search_database"))
         keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu"))
-        keyboard.add(types.InlineKeyboardButton("Редактирование данных", callback_data="edit_db"))
-        keyboard.add(types.InlineKeyboardButton("Просмотр данных", callback_data="view_db"))
-        keyboard.add(types.InlineKeyboardButton("Просмотр ранее созданных документов", callback_data="view_docs"))
-        keyboard.add(types.InlineKeyboardButton("Загрузить документы", callback_data="download_docs"))
+        keyboard.add(types.InlineKeyboardButton("✏️ Редактирование данных", callback_data="edit_db"))
+        keyboard.add(types.InlineKeyboardButton("📋 Просмотр данных", callback_data="view_db"))
+        keyboard.add(types.InlineKeyboardButton("📂 Просмотр ранее созданных документов", callback_data="view_docs"))
+        keyboard.add(types.InlineKeyboardButton("📤 Загрузить документы", callback_data="download_docs"))
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -901,11 +914,13 @@ def handle_parameter_input(message, user_id, user_message_id):
                 break
     
     if not db_field:
-        bot.send_message(
+        message = bot.send_message(
             message.chat.id,
-            f"Параметр '{parameter_name}' не найден в файле data.txt. Введите название точно как в файле."
+            f"Параметр '{parameter_name}' не найден в базе."
         )
-        bot.register_next_step_handler(message, handle_parameter_input, user_id)
+        time.sleep(1.5)
+        bot.delete_message(message.chat.id, message.message_id)
+        callback_client_details2(message, dtp.user_temp_data[user_id]['client_id'])
         return
     
     # Сохраняем название параметра и соответствующую переменную

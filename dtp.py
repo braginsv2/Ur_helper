@@ -376,7 +376,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                 data.update({"pret_sto": "No"})
                 data.update({"pret": "No"})
                 data.update({"ombuc": "No"})
-
+                data.update({"status": 'Отправлен запрос в страховую'})
                 try:
                     client_id, updated_data = save_client_to_db_with_id(data)
                     data.update(updated_data)
@@ -403,7 +403,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                                 str(data["number"]),str(data["fio_k"])],
                                 "Шаблоны\\1. ДТП\\Деликт\\Деликт 4. Запрос в страховую о выдаче акта и расчёта.docx",
                                 data["fio"]+"\\"+data["fio"]+"_заявление_о_выдаче_док_страх.docx")
-                data.update({"status": 'Отправлен запрос в страховую'})
+                
                 user_id = call.message.from_user.id
                 user_temp_data[user_id] = data
                  
@@ -457,6 +457,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             data.update({"date_pret": str(datetime.now().strftime("%d.%m.%Y"))})
             data.update({"analis_ins": "Yes"})
             data.update({"pret_sto": "Yes"})
+            data.update({"status": 'Отправлена претензия'}) 
             try:
                 client_id, updated_data = save_client_to_db_with_id(data)
                 data.update(updated_data)
@@ -509,7 +510,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                                         str(data["city_sto"]), str(data["N_sto"]), str(data["date_napr_sto"]), str(data["marks"]),str(data["car_number"]), str(data["date_pret"])],
                                         "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО свыше 50км\\6. Претензия в страховую  СТО свыше 50 км.docx",
                                         data["fio"]+"\\"+data["fio"]+"_претензия_в_страховую.docx")
-            data.update({"status": 'Отправлена претензия'})    
+               
             user_id = call.message.from_user.id
             user_temp_data[user_id] = data
              
@@ -835,7 +836,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             reply_markup=None
         )
         user_message_id = message.message_id  
-        bot.register_next_step_handler(message, Nv_ins, data, user_message_id)
+        bot.register_next_step_handler(message, Nv_ins, data, user_message_id, user_message_id)
          
     @bot.callback_query_handler(func=lambda call: call.data in ["continuefilling", "dopNo"])
     def callback_continue_filling(call):
@@ -952,16 +953,14 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             text="Деликт (у виновника нет ОСАГО)\nПодготовьте документы:\n1.Доверенность",
             reply_markup=None)
         
-        user_message_id = message.message_id
-        time.sleep(2)
-        bot.delete_message(message.chat.id, user_message_id)
+        user_message_id1 = message.message_id
         message=bot.send_message(
                 chat_id=call.message.chat.id,
                 text="Введите номер доверенности",
                 reply_markup=None
             )
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, N_dov_not, data, user_message_id)
+        bot.register_next_step_handler(message, N_dov_not, data, user_message_id, user_message_id1)
 
     @bot.callback_query_handler(func=lambda call: call.data in ["docsInsYes", "docsInsNo"])
     def callback_Zabr_insurance(call):
@@ -972,6 +971,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
          
 
         if call.data == "docsInsYes":
+            data.update({"status": 'Отправлен запрос в страховую'})
             create_fio_data_file(data)
             replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
                         "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
@@ -984,7 +984,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                         str(data["marks_culp"]), str(data["number_auto_culp"]), str(data["fio_k"]), str(data["number"])],
                         "Шаблоны\\1. ДТП\\1. На ремонт\\5. Запрос в страховую о выдаче акта и расчёта.docx",
                             data["fio"]+"\\"+data["fio"]+"_запрос_в_страховую.docx")
-            data.update({"status": 'Отправлен запрос в страховую'})
+            
 
             user_temp_data[user_id] = data
             time.sleep(1)
@@ -1043,30 +1043,20 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             reply_markup=keyboard
             ) 
         elif data["answer_ins"]=="NO":
-            user_message_id = []
-            message = bot.send_message(
-                    chat_id=call.message.chat.id,
-                    text="Страховая компания без согласования произвела выплату. Направление на ремонт не выдавалось",
-                    reply_markup=None
-                    )
-            user_message_id1 = message.message_id
             data.update({"vibor": "vibor1"})
             message = bot.send_message(
                     chat_id=call.message.chat.id,
-                    text="Подготовьте документы:\n1. Нотариальная доверенность\n2. Ответ страховой\n3. Экспертное заключение\n4. Выплатное дело\n5. Платежное поручение",
+                    text="Страховая компания без согласования произвела выплату. Направление на ремонт не выдавалось\nПодготовьте документы:\n1. Нотариальная доверенность\n2. Ответ страховой\n3. Экспертное заключение\n4. Выплатное дело\n5. Платежное поручение",
                     reply_markup=None)
-            user_message_id = message.message_id
-            time.sleep(3)
-            bot.delete_message(message.chat.id, user_message_id)
-            bot.delete_message(message.chat.id, user_message_id1)
+            user_message_id1 = message.message_id
             if data["Nv_ins"] != None or data["Nv_ins"] != '':
                 message = bot.send_message(call.message.chat.id, text="Введите дату экспертного заключения")
                 user_message_id = message.message_id
-                bot.register_next_step_handler(message, date_exp, data, user_message_id)
+                bot.register_next_step_handler(message, date_exp, data, user_message_id, user_message_id1)
             else:
                 message = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
                 user_message_id = message.message_id
-                bot.register_next_step_handler(message, Nv_ins, data, user_message_id)
+                bot.register_next_step_handler(message, Nv_ins, data, user_message_id, user_message_id1)
                 
         elif data["answer_ins"]=="NOOSAGO":
             keyboard = types.InlineKeyboardMarkup()
@@ -1116,7 +1106,6 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
          
-        user_message_id = []
 
         message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -1124,9 +1113,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                 text="Подготовьте документы:\n1. Нотариальную доверенность\n2. Отказ СТО",
                 reply_markup=None
                 )
-        user_message_id = message.message_id
-        time.sleep(3)
-        bot.delete_message(message.chat.id, user_message_id)
+        user_message_id1 = message.message_id
         message = bot.send_message(
             call.message.chat.id, 
             "Введите дату отказа СТО", 
@@ -1134,7 +1121,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
         )
         user_message_id = message.message_id
 
-        bot.register_next_step_handler(message, data_otkaz_sto, data, user_message_id)
+        bot.register_next_step_handler(message, data_otkaz_sto, data, user_message_id, user_message_id1)
     @bot.callback_query_handler(func=lambda call: call.data == "nextO")
     def callback_ombuc(call):
         """Продолжение заполнения данных клиента"""
@@ -1195,16 +1182,14 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                 text="Подготовьте документы:\n1. Принятое заявление омбуцмену\n2. Ответ омбуцмена\n3. Независимую техническую экспертизу",
                 reply_markup=None
                 )
-        user_message_id = message.message_id
-        time.sleep(3)
-        bot.delete_message(message.chat.id, user_message_id)
+        user_message_id1 = message.message_id
         message = bot.send_message(
             call.message.chat.id, 
             "Введите серию ВУ виновника", 
             reply_markup=None
         )
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, seria_vu_culp, data, user_message_id)
+        bot.register_next_step_handler(message, seria_vu_culp, data, user_message_id, user_message_id1)
     @bot.callback_query_handler(func=lambda call: call.data == "Ura")
     def callback_ura(call):
         """Продолжение заполнения данных клиента"""
@@ -1272,16 +1257,14 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                 text="Подготовьте документы:\n1. Принятая претензия\n2. Ответ на претензию",
                 reply_markup=None
                 )
-        user_message_id = message.message_id
-        time.sleep(3)
-        bot.delete_message(message.chat.id, user_message_id)
+        user_message_id1 = message.message_id
         message = bot.send_message(
             call.message.chat.id, 
             "Введите дату принятия претензии в формате ДД.ММ.ГГГГ", 
             reply_markup=None
         )
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, data_pret_prin, data, user_message_id)
+        bot.register_next_step_handler(message, data_pret_prin, data, user_message_id, user_message_id1)
     @bot.callback_query_handler(func=lambda call: call.data == "vibor1")
     def callback_vibor1(call):
          
@@ -1296,17 +1279,15 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                 message_id=call.message.message_id,
                 text="Подготовьте документы:\n1. Нотариальная доверенность\n2. Ответ страховой\n3. Экспертное заключение\n4. Выплатное дело\n5. Платежное поручение",
                 reply_markup=None)
-        user_message_id = message.message_id
-        time.sleep(3)
-        bot.delete_message(message.chat.id, user_message_id)
+        user_message_id1 = message.message_id
         if data["Nv_ins"] != None or data["Nv_ins"] != '':
             message = bot.send_message(call.message.chat.id, text="Введите дату экспертного заключения")
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, date_exp, data, user_message_id)
+            bot.register_next_step_handler(message, date_exp, data, user_message_id, user_message_id1)
         else:
             message = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, Nv_ins, data, user_message_id)
+            bot.register_next_step_handler(message, Nv_ins, data, user_message_id, user_message_id1)
     @bot.callback_query_handler(func=lambda call: call.data=="vibor2")
     def callback_vibor2(call):
          
@@ -1352,17 +1333,15 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                 text="Подготовьте документы:\n1. Акт приема-передачи автомобиля\n2. Ответ страховой\n3. Экспертное заключение\n4. Направление на ремонт",
                 reply_markup=None
                 )
-        user_message_id = message.message_id
-        time.sleep(3)
-        bot.delete_message(message.chat.id, user_message_id)
+        user_message_id1 = message.message_id
         if (data["Nv_ins"] == None) or (data["Nv_ins"] == ''):
             message = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, Nv_ins, data, user_message_id)
+            bot.register_next_step_handler(message, Nv_ins, data, user_message_id, user_message_id1)
         else:
             message = bot.send_message(call.message.chat.id, text="Введите название СТО")
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, name_sto, data, user_message_id)
+            bot.register_next_step_handler(message, name_sto, data, user_message_id, user_message_id1)
 
 
     @bot.callback_query_handler(func=lambda call: call.data=="viborRem2")
@@ -1406,12 +1385,10 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                 text="Подготовьте документы:\n1. Нотариальная доверенность\n2. Ответ страховой\n3. Экспертное заключение\4. Направление на ремонт",
                 reply_markup=None
                 )
-        user_message_id = message.message_id
-        time.sleep(3)
-        bot.delete_message(message.chat.id, user_message_id)
+        user_message_id1 = message.message_id
         message = bot.send_message(call.message.chat.id, text="Введите название СТО")
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, name_sto, data, user_message_id)
+        bot.register_next_step_handler(message, name_sto, data, user_message_id, user_message_id1)
 
     @bot.callback_query_handler(func=lambda call: call.data=="IskNOOSAGO")
     def callback_viborRem1(call):
@@ -1428,12 +1405,11 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                 text="Подготовьте документы:\n1. Выплатное дело\n2. Платежное поручение\n3. Экспертиза",
                 reply_markup=None
                 )
-        user_message_id = message.message_id
-        time.sleep(3)
-        bot.delete_message(message.chat.id, user_message_id)
+        user_message_id1 = message.message_id
+
         message = bot.send_message(call.message.chat.id, text="Введите название СТО")
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, name_sto, data, user_message_id)
+        bot.register_next_step_handler(message, name_sto, data, user_message_id, user_message_id1)
     @bot.callback_query_handler(func=lambda call: call.data=="vibor1yes")
     def callback_vibor1yes(call):
          
@@ -1471,12 +1447,10 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                 3. Экспертное заключение""",
                 reply_markup=None
                 )
-        user_message_id = message.message_id
-        time.sleep(3)
-        bot.delete_message(message.chat.id, user_message_id)
+        user_message_id1 = message.message_id
         message = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, Nv_ins, data, user_message_id)
+        bot.register_next_step_handler(message, Nv_ins, data, user_message_id, user_message_id1)
 
 def FIO(message, data, user_message_id, user_message_id1):
     bot.delete_message(message.chat.id, user_message_id)
@@ -2021,6 +1995,7 @@ def INN(message, data, user_message_id):
         data.update({"N_pret_prin": ''})
         data.update({"date_ombuc": ''})
         data.update({"date_ins_pod": str(datetime.now().strftime("%d.%m.%Y"))})
+        data.update({"status": 'Отправлен запрос в страховую'})
         try:
             client_id, updated_data = save_client_to_db_with_id(data)
             data.update(updated_data)
@@ -2125,7 +2100,7 @@ def INN(message, data, user_message_id):
                                     str(data["BIK"]), str(data["INN"]), str(datetime.now().strftime("%d.%m.%Y")), str(data["fio_sobs"]), str(data["date_of_birth_sobs"])],
                                     "Шаблоны\\1. ДТП\\1. На ремонт\\3. Заявление в страховую после ДТП\\3d Заявление в Страховую ФЛ водитель без эвакуатора.docx",
                                     data["fio"]+"\\"+data["fio"]+"_заявление_в_страховую.docx")
-        data.update({"status": 'Отправлен запрос в страховую'})
+        
         user_id = message.from_user.id
         user_temp_data[user_id] = data
          
@@ -2158,8 +2133,9 @@ def date_coin_ins(message, data, user_message_id):
         user_message_id = message.message_id
         bot.register_next_step_handler(message, date_coin_ins, data, user_message_id)
 
-def Nv_ins(message, data, user_message_id):
+def Nv_ins(message, data, user_message_id, user_message_id1):
     bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, user_message_id1)
     bot.delete_message(message.chat.id, message.message_id)
     data.update({"Nv_ins": message.text})
     message = bot.send_message(message.chat.id, text="Введите номер акта осмотра ТС".format(message.from_user))
@@ -2181,11 +2157,11 @@ def date_Na_ins(message, data, user_message_id):
         if data["viborRem"] == "viborRem3":
             message = bot.send_message(message.chat.id, text="Введите дату экспертного заключения в формате ДД.ММ.ГГГГ".format(message.from_user))
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, date_exp, data, user_message_id)
+            bot.register_next_step_handler(message, date_exp, data, user_message_id, user_message_id)
         elif data["viborRem"] == "viborRem1":
             message = bot.send_message(message.chat.id, text="Введите название СТО".format(message.from_user))
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, name_sto, data, user_message_id)
+            bot.register_next_step_handler(message, name_sto, data, user_message_id, user_message_id)
         elif data["dop_osm"] == "Yes":
             message = bot.send_message(message.chat.id, text="Введите адрес своего СТО".format(message.from_user))
             user_message_id = message.message_id
@@ -2193,12 +2169,13 @@ def date_Na_ins(message, data, user_message_id):
         else:
             message = bot.send_message(message.chat.id, text="Введите дату экспертного заключения в формате ДД.ММ.ГГГГ".format(message.from_user))
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, date_exp, data, user_message_id)
+            bot.register_next_step_handler(message, date_exp, data, user_message_id, user_message_id)
     except ValueError:
         message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату акта осмотра ТС в формате ДД.ММ.ГГГГ.".format(message.from_user))
         user_message_id = message.message_id
         bot.register_next_step_handler(message, date_Na_ins, data, user_message_id)
-def date_exp(message, data, user_message_id):
+def date_exp(message, data, user_message_id, user_message_id1):
+    bot.delete_message(message.chat.id, user_message_id1)
     bot.delete_message(message.chat.id, user_message_id)
     bot.delete_message(message.chat.id, message.message_id)
     try:
@@ -2211,7 +2188,7 @@ def date_exp(message, data, user_message_id):
     except ValueError:
         message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату экспертного заключения в формате ДД.ММ.ГГГГ".format(message.from_user))
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, date_exp, data, user_message_id)
+        bot.register_next_step_handler(message, date_exp, data, user_message_id, user_message_id)
 
 def org_exp(message, data, user_message_id):
     bot.delete_message(message.chat.id, user_message_id)
@@ -2267,7 +2244,7 @@ def coin_osago(message, data, user_message_id):
             text="Введите серию ВУ виновника ДТП"
             )
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, seria_vu_culp, data, user_message_id)
+            bot.register_next_step_handler(message, seria_vu_culp, data, user_message_id, user_message_id)
         elif data["viborRem"] == "viborRem1":
             message = bot.send_message(
             message.chat.id,
@@ -2290,8 +2267,9 @@ def coin_osago(message, data, user_message_id):
         user_message_id = message.message_id
         bot.register_next_step_handler(message, coin_osago, data, user_message_id)
 
-def data_otkaz_sto(message, data, user_message_id):
+def data_otkaz_sto(message, data, user_message_id, user_message_id1):
     bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, user_message_id1)
     bot.delete_message(message.chat.id, message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
@@ -2302,7 +2280,7 @@ def data_otkaz_sto(message, data, user_message_id):
     except ValueError:
         message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату отказа СТО в формате ДД.ММ.ГГГГ".format(message.from_user))
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, data_otkaz_sto, data, user_message_id)
+        bot.register_next_step_handler(message, data_otkaz_sto, data, user_message_id, user_message_id)
 def coin_not(message, data, user_message_id):
     bot.delete_message(message.chat.id, user_message_id)
     bot.delete_message(message.chat.id, message.message_id)
@@ -2313,7 +2291,7 @@ def coin_not(message, data, user_message_id):
             text="Введите номер доверенности"
         )
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, N_dov_not, data, user_message_id)
+        bot.register_next_step_handler(message, N_dov_not, data, user_message_id, user_message_id)
     else:
         message = bot.send_message(
             message.chat.id,
@@ -2322,7 +2300,8 @@ def coin_not(message, data, user_message_id):
         user_message_id = message.message_id
         bot.register_next_step_handler(message, coin_not, data, user_message_id)
 
-def N_dov_not(message, data, user_message_id):
+def N_dov_not(message, data, user_message_id, user_message_id1):
+    bot.delete_message(message.chat.id, user_message_id1)
     bot.delete_message(message.chat.id, user_message_id)
     bot.delete_message(message.chat.id, message.message_id)
     data.update({"N_dov_not": message.text})
@@ -2367,7 +2346,7 @@ def fio_not(message, data, user_message_id):
             data.update({"pret_sto": "No"})
             data.update({"pret": "No"})
             data.update({"ombuc": "No"})
-
+            data.update({"status": 'Отправлен запрос в страховую'})
             try:
                 client_id, updated_data = save_client_to_db_with_id(data)
                 data.update(updated_data)
@@ -2395,7 +2374,7 @@ def fio_not(message, data, user_message_id):
                                     str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"])],
                                     "Шаблоны\\1. ДТП\\Деликт\\Деликт 4. Запрос в страховую о выдаче акта и расчёта.docx",
                                     data["fio"]+"\\"+data["fio"]+"_заявление_о_выдаче_док_страх.docx")
-            data.update({"status": 'Отправлен запрос в страховую'})
+            
             user_id = message.from_user.id
             user_temp_data[user_id] = data
              
@@ -2434,6 +2413,7 @@ def number_not(message, data, user_message_id):
         data.update({"date_pret": str(datetime.now().strftime("%d.%m.%Y"))})
         data.update({"analis_ins": "Yes"})
         data.update({"pret_sto": "Yes"})
+        data.update({"status": 'Отправлена претензия в страховую'})
         try:
             client_id, updated_data = save_client_to_db_with_id(data)
             data.update(updated_data)
@@ -2486,7 +2466,7 @@ def number_not(message, data, user_message_id):
                                     str(data["city_sto"]), str(data["N_sto"]), str(data["date_napr_sto"]), str(data["marks"]),str(data["car_number"]), str(data["date_pret"])],
                                     "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО свыше 50км\\6. Претензия в страховую  СТО свыше 50 км.docx",
                                     data["fio"]+"\\"+data["fio"]+"_претензия_в_страховую.docx")
-        data.update({"status": 'Отправлена претензия в страховую'})
+        
         user_id = message.from_user.id
         user_temp_data[user_id] = data
          
@@ -2535,8 +2515,9 @@ def time_sto(message, data,user_message_id):
 
 
 
-def data_pret_prin(message, data, user_message_id):
+def data_pret_prin(message, data, user_message_id, user_message_id1):
     bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, user_message_id1)
     bot.delete_message(message.chat.id, message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
@@ -2552,7 +2533,7 @@ def data_pret_prin(message, data, user_message_id):
     except ValueError:
         message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату принятия претензии в формате ДД.ММ.ГГГГ".format(message.from_user))
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, data_pret_prin, data, user_message_id)
+        bot.register_next_step_handler(message, data_pret_prin, data, user_message_id, user_message_id)
 def data_pret_otv(message, data, user_message_id):
     bot.delete_message(message.chat.id, user_message_id)
     bot.delete_message(message.chat.id, message.message_id)
@@ -2572,7 +2553,7 @@ def N_pret_prin(message, data, user_message_id):
     data.update({"N_pret_prin": message.text})
     data.update({"pret": "Yes"})
     data.update({"date_ombuc": str(datetime.now().strftime("%d.%m.%Y"))})
-     
+    data.update({"status": 'Отправлено заявление фин.омбуд.'})
          
     try:
         client_id, updated_data = save_client_to_db_with_id(data)
@@ -2640,7 +2621,7 @@ def N_pret_prin(message, data, user_message_id):
                             str(data["date_exp"]), str(data["coin_exp"]), str(data["coin_exp_izn"]), str(data["city"]), str(data["city_sto"])],
                             "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО свыше 50км\\7. Заявление фин. омбудсмену СТО свыше 50 км.docx",
                             data["fio"]+"\\"+data["fio"]+"_заявление_фин_обуцмену.docx")
-    data.update({"status": 'Отправлено заявление фин.омбуд.'})
+    
     user_id = message.from_user.id
     user_temp_data[user_id] = data
      
@@ -2652,8 +2633,9 @@ def N_pret_prin(message, data, user_message_id):
     bot.send_message(message.chat.id, text="Данные сохранены, отправить вам документы?".format(message.from_user), reply_markup=keyboard)
 
 
-def seria_vu_culp(message, data, user_message_id):
+def seria_vu_culp(message, data, user_message_id, user_message_id1):
     bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, user_message_id1)
     bot.delete_message(message.chat.id, message.message_id)
     data.update({"seria_vu_culp": message.text})
     message = bot.send_message(message.chat.id, text="Введите номер ВУ виновника".format(message.from_user))
@@ -2818,6 +2800,7 @@ def date_izvesh_dtp(message, data, user_message_id):
         data.update({"ombuc": "Yes"})
         data.update({"date_isk": str(datetime.now().strftime("%d.%m.%Y"))})
         data.update({"Done": "Yes"})
+        data.update({"status": 'Отправлено исковое заявление'})
         try:
             client_id, updated_data = save_client_to_db_with_id(data)
             data.update(updated_data)
@@ -2848,7 +2831,7 @@ def date_izvesh_dtp(message, data, user_message_id):
                                 str(data["date_izvesh_dtp"]), str(data["date_isk"]), str(data['year'])],
                                 "Шаблоны\\1. ДТП\\Деликт\\Деликт 5.  Исковое заявление.docx",
                                 data["fio"]+"\\"+data["fio"]+"_Исковое_заявление.docx")
-        data.update({"status": 'Отправлено исковое заявление'})
+        
         user_id = message.from_user.id
         user_temp_data[user_id] = data
          
@@ -2863,8 +2846,9 @@ def date_izvesh_dtp(message, data, user_message_id):
         user_message_id = message.message_id
         bot.register_next_step_handler(message, date_izvesh_dtp, data, user_message_id)
 
-def name_sto(message, data, user_message_id):
+def name_sto(message, data, user_message_id, user_message_id1):
     bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, user_message_id1)
     bot.delete_message(message.chat.id, message.message_id)
     data.update({"name_sto": message.text})
     message = bot.send_message(message.chat.id, text="Введите ИНН СТО".format(message.from_user))
@@ -2927,11 +2911,11 @@ def date_napr_sto(message, data, user_message_id):
         if data["viborRem"]=="viborRem3":
             message = bot.send_message(message.chat.id, text="Введите входящий номер в страховую".format(message.from_user))
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, Nv_ins, data, user_message_id)
+            bot.register_next_step_handler(message, Nv_ins, data, user_message_id, user_message_id)
         else:
             message = bot.send_message(message.chat.id, text="Введите дату экспертного заключения в формате ДД.ММ.ГГГГ".format(message.from_user))
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, date_exp, data, user_message_id)
+            bot.register_next_step_handler(message, date_exp, data, user_message_id, user_message_id)
     except ValueError:
         message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату направления на СТО в формате ДД.ММ.ГГГГ".format(message.from_user))
         user_message_id = message.message_id
@@ -2943,6 +2927,7 @@ def date_sto(message, data, user_message_id):
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_sto": message.text})
         data.update({"date_zayav_sto": str(datetime.now().strftime("%d.%m.%Y"))})
+        data.update({"status": 'Отправлено заявление СТО'})
         try:
             client_id, updated_data = save_client_to_db_with_id(data)
             data.update(updated_data)
@@ -2963,7 +2948,7 @@ def date_sto(message, data, user_message_id):
                                 str(data["date_ins"]), str(data["number"])],
                                 "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО отказала\\6. Заявление в СТО.docx",
                                 data["fio"]+"\\"+data["fio"]+"_Заявление_СТО_отказ.docx")
-        data.update({"status": 'Отправлено заявление СТО'})
+        
         user_id = message.from_user.id
         user_temp_data[user_id] = data
          
@@ -3019,7 +3004,7 @@ def time_sto_main(message, data, user_message_id):
         data.update({"time_sto_main": message.text})
         data.update({"dop_osm": "Yes"})
         data.update({"data_dop_osm": str(datetime.now().strftime("%d.%m.%Y"))})
-
+        data.update({"status": 'Отправлено заявление на доп.осмотр'})
         try:
             client_id, updated_data = save_client_to_db_with_id(data)
             data.update(updated_data)
@@ -3040,7 +3025,7 @@ def time_sto_main(message, data, user_message_id):
                                 str(data["data_dop_osm"])],
                                 "Шаблоны\\1. ДТП\\1. На ремонт\\4. Заявление о проведении дополнительного осмотра автомобиля.docx",
                                 data["fio"]+"\\"+data["fio"]+"_Заявление_о_доп_осмотра.docx")
-        data.update({"status": 'Отправлено заявление на доп.осмотр'})
+        
         user_id = message.from_user.id
         user_temp_data[user_id] = data
          

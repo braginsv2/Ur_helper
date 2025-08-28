@@ -588,6 +588,7 @@ def data_docs(message, data, user_message_id):
         data.update({"year": list(str(datetime.now().year))[2]+list(str(datetime.now().year))[3]})
         data.update({"analis_ins": "Yes"})
         data.update({"Done": "Yes"})
+        data.update({"status": 'Отправлен запрос в страховую'})
         try:
             client_id, updated_data = save_client_to_db_with_id(data)
             data.update(updated_data)

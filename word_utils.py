@@ -191,6 +191,7 @@ def export_clients_db_to_excel(db_path='clients.db', output_path='clients_export
     # Словарь соответствия: русское название -> название поля в БД
     column_mapping = {
         '№ Клиента': 'client_id',
+        'Статус': 'status',
         'Город': 'city',
         'Клиент ФИО': 'fio',
         'Дата ДТП': 'date_dtp',
@@ -206,6 +207,7 @@ def export_clients_db_to_excel(db_path='clients.db', output_path='clients_export
         'Дата составления заявления омбуцмену': 'date_ombuc',
         'Дата искового заявления': 'date_isk',
         'Суд': 'sud',
+
     }
     
     try:

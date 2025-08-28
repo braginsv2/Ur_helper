@@ -620,6 +620,7 @@ def data_docs(message, data, user_message_id):
         data.update({"date_ins": str(datetime.now().strftime("%d.%m.%Y"))})
         data.update({"year": list(str(datetime.now().year))[2]+list(str(datetime.now().year))[3]})
         data.update({"analis_ins": "Yes"})
+        data.update({"status": 'Сформирован договор'})
         try:
             client_id, updated_data = save_client_to_db_with_id(data)
             data.update(updated_data)
@@ -904,6 +905,7 @@ def gos_money(message, data, user_message_id):
     data.update({"gos_money": message.text})
     data.update({"date_ins": str(datetime.now().strftime("%d.%m.%Y"))})
     data.update({"Done": "Yes"})
+    data.update({"status": 'Отправлено исковое заявление'})
     try:
         client_id, updated_data = save_client_to_db_with_id(data)
         data.update(updated_data)

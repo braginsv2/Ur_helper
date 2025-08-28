@@ -129,7 +129,16 @@ class DatabaseManager:
             N_kv_ur TEXT,
             date_kv_ur TEXT,
             N_kv_exp TEXT,
-            status TEXT
+            status TEXT,
+            fio_c TEXT,
+            fio_c_k TEXT,
+            seria_pasport_c TEXT,
+            number_pasport_c TEXT,
+            where_pasport_c TEXT,
+            when_pasport_c TEXT,
+            address_c TEXT,
+            date_of_birth_с TEXT,
+            coin_c TEXT
                      
         )
         ''')
@@ -314,8 +323,16 @@ class DatabaseManager:
                 'N_kv_ur':merged_data.get('N_kv_ur', ''),
                 'date_kv_ur':merged_data.get('date_kv_ur', ''),
                 'N_kv_exp': merged_data.get('N_kv_exp', ''),
-                'status': merged_data.get('status', '')
-
+                'status': merged_data.get('status', ''),
+                'fio_c': merged_data.get('fio_c', ''),
+                'fio_c_k': merged_data.get('fio_c_k', ''),
+                'seria_pasport_c': merged_data.get('seria_pasport_c', 0),
+                'number_pasport_c': merged_data.get('number_pasport_c', 0),
+                'where_pasport_c': merged_data.get('where_pasport_c', ''),
+                'when_pasport_c': merged_data.get('when_pasport_c', ''),
+                'address_c': merged_data.get('address_c', ''),
+                'date_of_birth_c': merged_data.get('date_of_birth_c', ''),
+                'coin_c': merged_data.get('coin_c', ''),
             }
             
             # SQL запрос для обновления
@@ -336,7 +353,8 @@ class DatabaseManager:
                 index_culp=?,address_culp=?,number_culp=?, N_viplat_work=?,date_viplat_work=?, N_plat_por=?,date_plat_por=?,sud=?,gos_money=?,
                 date_izvesh_dtp=?, date_isk=?, dop_osm=?, ev=?, fio_k=?, data_dop_osm=?, viborRem=?,date_zayav_sto=?, pret_sto=?,data_otkaz_sto=?,date_napr_sto=?,
                 address_sto_main=?,data_sto_main=?, time_sto_main=?, city_sto=?, Done=?, city=?, year=?, street=?, N_gui=?, date_gui=?, N_prot=?, date_prot=?,
-                date_road=?, N_kv_not=?, date_kv_not=?, N_kv_ur=?, date_kv_ur=?,N_kv_exp=?, status=?
+                date_road=?, N_kv_not=?, date_kv_not=?, N_kv_ur=?, date_kv_ur=?,N_kv_exp=?, status=?, fio_c=?, fio_c_k=?, seria_pasport_c=?,number_pasport_c=?,
+                where_pasport_c=?, when_pasport_c=?, address_c=?, date_of_birth_c=?, coin_c=?
             WHERE client_id=?
             '''
             
@@ -483,6 +501,15 @@ class DatabaseManager:
                 'date_kv_ur': data.get('date_kv_ur', ''),
                 'N_kv_exp': data.get('N_kv_exp', ''),
                 'status': data.get('status', ''),
+                'fio_c': data.get('fio_c', ''),
+                'fio_c_k': data.get('fio_c_k', ''),
+                'seria_pasport_c': data.get('seria_pasport_c', 0),
+                'number_pasport_c': data.get('number_pasport_c', 0),
+                'where_pasport_c': data.get('where_pasport_c', ''),
+                'when_pasport_c': data.get('when_pasport_c', ''),
+                'address_c': data.get('address_c', ''),
+                'date_of_birth_c': data.get('date_of_birth_c', ''),
+                'coin_c': data.get('coin_c', ''),
             }
             
             # SQL запрос для вставки
@@ -503,8 +530,8 @@ class DatabaseManager:
                 index_culp ,address_culp ,number_culp , N_viplat_work ,date_viplat_work , N_plat_por ,date_plat_por ,sud ,gos_money ,
                 date_izvesh_dtp , date_isk,dop_osm, ev, fio_k,data_dop_osm, viborRem,date_zayav_sto,pret_sto, data_otkaz_sto,date_napr_sto,
                 address_sto_main,data_sto_main,time_sto_main, city_sto, Done, city,year, street, N_gui, date_gui, N_prot,date_prot, date_road,
-                N_kv_not, date_kv_not, N_kv_ur, date_kv_ur,N_kv_exp, status 
-            ) VALUES (?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?, ?, ?,?, ?,?,?,?, ?, ?,?,?,?, ?,?,?,?,?, ?, ?, ?, ?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                N_kv_not, date_kv_not, N_kv_ur, date_kv_ur,N_kv_exp, status,fio_c,fio_c_k, seria_pasport_c,number_pasport_c,where_pasport_c,when_pasport_c, address_c, date_of_birth_c,coin_c    
+            ) VALUES (?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?, ?, ?,?,?,?,?,?,?,?,?,? ?,?,?,?, ?, ?,?,?,?, ?,?,?,?,?, ?,?, ?, ?, ?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             '''
             
             try:
