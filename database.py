@@ -137,8 +137,11 @@ class DatabaseManager:
             where_pasport_c TEXT,
             when_pasport_c TEXT,
             address_c TEXT,
-            date_of_birth_с TEXT,
-            coin_c TEXT
+            date_of_birth_c TEXT,
+            coin_c TEXT,
+            city_birth_с TEXT,
+            index_postal_c TEXT,
+            number_c TEXT
                      
         )
         ''')
@@ -333,6 +336,9 @@ class DatabaseManager:
                 'address_c': merged_data.get('address_c', ''),
                 'date_of_birth_c': merged_data.get('date_of_birth_c', ''),
                 'coin_c': merged_data.get('coin_c', ''),
+                'city_birth_с': merged_data.get('city_birth_с', ''),
+                'index_postal_c':merged_data.get('index_postal_c', ''),
+                'number_c':merged_data.get('number_c', ''),
             }
             
             # SQL запрос для обновления
@@ -354,7 +360,7 @@ class DatabaseManager:
                 date_izvesh_dtp=?, date_isk=?, dop_osm=?, ev=?, fio_k=?, data_dop_osm=?, viborRem=?,date_zayav_sto=?, pret_sto=?,data_otkaz_sto=?,date_napr_sto=?,
                 address_sto_main=?,data_sto_main=?, time_sto_main=?, city_sto=?, Done=?, city=?, year=?, street=?, N_gui=?, date_gui=?, N_prot=?, date_prot=?,
                 date_road=?, N_kv_not=?, date_kv_not=?, N_kv_ur=?, date_kv_ur=?,N_kv_exp=?, status=?, fio_c=?, fio_c_k=?, seria_pasport_c=?,number_pasport_c=?,
-                where_pasport_c=?, when_pasport_c=?, address_c=?, date_of_birth_c=?, coin_c=?
+                where_pasport_c=?, when_pasport_c=?, address_c=?, date_of_birth_c=?, coin_c=?, city_birth_с=?, index_postal_c=?, number_c=?
             WHERE client_id=?
             '''
             
@@ -510,6 +516,9 @@ class DatabaseManager:
                 'address_c': data.get('address_c', ''),
                 'date_of_birth_c': data.get('date_of_birth_c', ''),
                 'coin_c': data.get('coin_c', ''),
+                'city_birth_с': data.get('city_birth_с', ''),
+                'index_postal_c': data.get('index_postal_c', ''),
+                'number_c': data.get('number_c', ''),
             }
             
             # SQL запрос для вставки
@@ -530,8 +539,9 @@ class DatabaseManager:
                 index_culp ,address_culp ,number_culp , N_viplat_work ,date_viplat_work , N_plat_por ,date_plat_por ,sud ,gos_money ,
                 date_izvesh_dtp , date_isk,dop_osm, ev, fio_k,data_dop_osm, viborRem,date_zayav_sto,pret_sto, data_otkaz_sto,date_napr_sto,
                 address_sto_main,data_sto_main,time_sto_main, city_sto, Done, city,year, street, N_gui, date_gui, N_prot,date_prot, date_road,
-                N_kv_not, date_kv_not, N_kv_ur, date_kv_ur,N_kv_exp, status,fio_c,fio_c_k, seria_pasport_c,number_pasport_c,where_pasport_c,when_pasport_c, address_c, date_of_birth_c,coin_c    
-            ) VALUES (?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?, ?, ?,?,?,?,?,?,?,?,?,? ?,?,?,?, ?, ?,?,?,?, ?,?,?,?,?, ?,?, ?, ?, ?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                N_kv_not, date_kv_not, N_kv_ur, date_kv_ur,N_kv_exp, status,fio_c,fio_c_k, seria_pasport_c,number_pasport_c,where_pasport_c,when_pasport_c, 
+                address_c, date_of_birth_c,coin_c, city_birth_с, index_postal_c, number_c    
+            ) VALUES (?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?, ?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?, ?, ?, ?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             '''
             
             try:
