@@ -12,7 +12,6 @@ bot = None
 callback_client_details2_handler = None
 user_temp_data = {}
 
-
 def init_bot(bot_instance, start_handler=None, callback_handler=None):
     """Инициализация бота в модуле"""
     global bot, callback_client_details2_handler
@@ -676,4 +675,5 @@ def clear_chat_history_optimized(message, count):
                 time.sleep(0.3)  # Короткая пауза при превышении лимитов
                 continue
         except Exception:
+
             continue
