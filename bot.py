@@ -5,7 +5,7 @@ import dtp
 import pit
 import no_osago
 import podal_z
-from word_utils import create_fio_data_file, export_clients_db_to_excel
+from word_utils import create_fio_data_file, export_clients_db_to_excel, edit_files
 import json
 import sqlite3
 import time
@@ -82,7 +82,16 @@ def callback_client_details2(message, client_id):
         time.sleep(0.5)
         dtp.user_temp_data[user_id] = client
         if client['accident']=='dtp' and client['Done'] !="Yes":
-            if (not dop_osm or dop_osm == '') and (not answer_ins or answer_ins == ''):
+            if client['marks'] == '':
+                user_id = message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="zayev_ins"
+                ))
+            elif (not dop_osm or dop_osm == '') and (not answer_ins or answer_ins == ''):
                 user_id = message.from_user.id
                 dtp.user_temp_data[user_id] = client
                 time.sleep(0.5)
@@ -159,6 +168,47 @@ def callback_client_details2(message, client_id):
                 keyboard.add(types.InlineKeyboardButton(
                     "📝 Продолжить заполнение", 
                     callback_data="NO_next"))
+        elif client['accident']=='podal_zayavl' and client['Done'] !="Yes":
+            if client['vibor1'] =='':
+                user_id = message.from_user.id
+                podal_z.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="podal_zayavl_next"))
+            elif client['analis_ins'] =='' and client['vibor']=='no_sogl':
+                user_id = message.from_user.id
+                podal_z.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="next1"))
+            elif client['answer_ins'] =='' and client['vibor']=='no_sogl':
+                user_id = message.from_user.id
+                podal_z.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="next2"))
+            elif client['viborRem'] =='' and client['vibor']=='no_sogl':
+                user_id = message.from_user.id
+                podal_z.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="next3"))
+            elif client['ombuc'] =='':
+                user_id = message.from_user.id
+                podal_z.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="podal_zayavl_nexto"))
         keyboard.add(types.InlineKeyboardButton("🔍 Новый поиск", callback_data="btn_search_database"))
         keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu"))
         keyboard.add(types.InlineKeyboardButton("✏️ Редактирование данных", callback_data="edit_db"))
@@ -567,9 +617,19 @@ def callback_client_details(call):
         keyboard = types.InlineKeyboardMarkup()
         del client['data_json']
         time.sleep(0.5)
+        print(client)
         dtp.user_temp_data[user_id] = client
         if client['accident']=='dtp' and client['Done'] !="Yes":
-            if (not dop_osm or dop_osm == '') and (not answer_ins or answer_ins == ''):
+            if client['marks'] == '':
+                user_id = call.message.from_user.id
+                dtp.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="zayev_ins"
+                ))
+            elif (not dop_osm or dop_osm == '') and (not answer_ins or answer_ins == ''):
                 user_id = call.message.from_user.id
                 dtp.user_temp_data[user_id] = client
                 time.sleep(0.5)
@@ -631,7 +691,7 @@ def callback_client_details(call):
         elif client['accident']=='pit' and client['Done'] !="Yes":
             if analis_ins =="Yes":
                 user_id = call.message.from_user.id
-                dtp.user_temp_data[user_id] = client
+                pit.user_temp_data[user_id] = client
                 time.sleep(0.5)
                 details += "\n⚠️ Данные не полностью заполнены"
                 keyboard.add(types.InlineKeyboardButton(
@@ -640,7 +700,7 @@ def callback_client_details(call):
         elif client['accident']=='net_osago' and client['Done'] !="Yes":
             if analis_ins =="Yes":
                 user_id = call.message.from_user.id
-                dtp.user_temp_data[user_id] = client
+                no_osago.user_temp_data[user_id] = client
                 time.sleep(0.5)
                 details += "\n⚠️ Данные не полностью заполнены"
                 keyboard.add(types.InlineKeyboardButton(
@@ -649,12 +709,44 @@ def callback_client_details(call):
         elif client['accident']=='podal_zayavl' and client['Done'] !="Yes":
             if client['vibor1'] =='':
                 user_id = call.message.from_user.id
-                dtp.user_temp_data[user_id] = client
+                podal_z.user_temp_data[user_id] = client
                 time.sleep(0.5)
                 details += "\n⚠️ Данные не полностью заполнены"
                 keyboard.add(types.InlineKeyboardButton(
                     "📝 Продолжить заполнение", 
                     callback_data="podal_zayavl_next"))
+            elif client['analis_ins'] =='' and client['vibor']=='no_sogl':
+                user_id = call.message.from_user.id
+                podal_z.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="next1"))
+            elif client['answer_ins'] =='' and client['vibor']=='no_sogl':
+                user_id = call.message.from_user.id
+                podal_z.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="next2"))
+            elif client['viborRem'] =='' and client['vibor']=='no_sogl':
+                user_id = call.message.from_user.id
+                podal_z.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="next3"))
+            elif client['ombuc'] =='':
+                user_id = call.message.from_user.id
+                podal_z.user_temp_data[user_id] = client
+                time.sleep(0.5)
+                details += "\n⚠️ Данные не полностью заполнены"
+                keyboard.add(types.InlineKeyboardButton(
+                    "📝 Продолжить заполнение", 
+                    callback_data="podal_zayavl_nexto"))
         keyboard.add(types.InlineKeyboardButton("🔍 Новый поиск", callback_data="btn_search_database"))
         keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="btn_main_menu"))
         keyboard.add(types.InlineKeyboardButton("✏️ Редактирование данных", callback_data="edit_db"))
@@ -965,8 +1057,22 @@ def handle_value_input(message, user_id, user_message_id):
         
         message = bot.send_message(
             message.chat.id,
-            f"Параметр '{parameter_name}' успешно обновлен на значение '{new_value}'"
+            f"Параметр '{parameter_name}' успешно обновлен на значение '{new_value}'. Подождите, документы редактируются"
         )
+        fio = client_data['fio']
+        client_dir = fio+"//Документы"  # Папка с именем клиента
+        
+        # Получаем список файлов в папке клиента
+        files = []
+        try:
+            for filename in os.listdir(client_dir):
+                if os.path.isfile(os.path.join(client_dir, filename)):
+                    files.append(filename)
+            print(files)
+            edit_files(files, client_data)
+        except Exception as e:
+            pass
+        
         time.sleep(2)
         bot.delete_message(message.chat.id, message.message_id)
         # Очищаем временные данные
@@ -997,7 +1103,7 @@ def callback_view_docs(call):
             return
         
         fio = client_data['fio']
-        client_dir = fio  # Папка с именем клиента
+        client_dir = fio+"//Документы"  # Папка с именем клиента
         
         if not os.path.exists(client_dir):
             bot.edit_message_text(
@@ -1152,7 +1258,7 @@ def callback_download_docs(call):
             return
         
         fio = client_data['fio']
-        client_dir = fio  # Папка с именем клиента
+        client_dir = fio+"//Документы"  # Папка с именем клиента
         
         # Создаем папку клиента если она не существует
         if not os.path.exists(client_dir):
@@ -1559,6 +1665,8 @@ def clear_chat_history_optimized(message, count):
         except Exception:
             continue
         
+
+
 
 
 if __name__ == '__main__':

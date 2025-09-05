@@ -82,6 +82,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             text="Есть ли соглашение со страховой?",
             reply_markup=keyboard
         )
+
     @bot.callback_query_handler(func=lambda call: call.data in ["btn_viplatily_yes"])
     def callback_viplatily_yes(call):
 
@@ -127,7 +128,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             text="Выберите из предложенных вариантов",
             reply_markup=keyboard
         ) 
-    @bot.callback_query_handler(func=lambda call: call.data in ["btn_podal_zayavl_rem", "btn_podal_zayavl_viplata_no", "btn_viplatily_yes_delict", "btn_viplatily_yes_ceccia"])
+    @bot.callback_query_handler(func=lambda call: call.data in ["btn_podal_zayavl_rem", "btn_podal_zayavl_viplata_no", "btn_viplatily_yes_delict", "btn_viplatily_yes_ceccia","btn_viplatily_no"])
     def btn_podal_zayavl_rem(call):
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
@@ -145,6 +146,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             data['accident'] = 'dtp'
             btn3 = types.InlineKeyboardButton("Назад", callback_data="btn_podal_zayavl")
             keyboard.add(btn3)
+            data.update({'vibor': 'Rem'})
         elif call.data == "btn_podal_zayavl_viplata_no":
             data['accident'] = 'dtp'
             btn3 = types.InlineKeyboardButton("Назад", callback_data="btn_podal_zayavl_viplata")
@@ -158,6 +160,10 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             btn3 = types.InlineKeyboardButton("Назад", callback_data="btn_viplatily_yes")
             keyboard.add(btn3)
             data.update({'vibor': 'ceccia'})
+        elif call.data == "btn_viplatily_no":
+            btn3 = types.InlineKeyboardButton("Назад", callback_data="btn_podal_zayavl_viplata_yes")
+            keyboard.add(btn3)
+            data.update({'vibor': 'no_sogl'})
         
         
         bot.edit_message_text(
@@ -186,7 +192,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
         keyboard = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton("Да", callback_data="btn_podal_zayavl_rem_ev_Yes")
         btn2 = types.InlineKeyboardButton("Нет", callback_data="btn_podal_zayavl_rem_ev_No")
-        btn3 = types.InlineKeyboardButton("Назад", callback_data="btn_podal_zayavl_rem")
+        btn3 = types.InlineKeyboardButton("Назад", callback_data="btn_podal_zayavl")
         keyboard.add(btn1)
         keyboard.add(btn2)
         keyboard.add(btn3)
@@ -234,26 +240,115 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
 
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
-         
-        message = bot.edit_message_text(
+        if data['vibor'] == 'no_sogl':
+            keyboard = types.InlineKeyboardMarkup()
+            btn1 = types.InlineKeyboardButton("Да", callback_data="docsInsYes_podal_z")
+            btn2 = types.InlineKeyboardButton("Нет", callback_data="docsInsNo_podal_z")
+            keyboard.add(btn1)
+            keyboard.add(btn2)
+            bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
+            text="Необходимо заявление на выдачу документов из страховой?",
+            reply_markup=keyboard)
+        else: 
+            message = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="""Подготовьте документы:
+                1. Доверенность
+                """,
+                reply_markup=None
+            )
+            user_message_id = message.message_id 
+            if data['vibor'] == 'delict':
+                message = bot.send_message(call.message.chat.id, "Введите серию ВУ виновника ДТП")
+                user_message_id1 = message.message_id
+                bot.register_next_step_handler(message, seria_vu_culp, data, user_message_id, user_message_id1)
+            elif data['vibor'] == 'ceccia':
+                message = bot.send_message(call.message.chat.id, "Введите ФИО цессионария в формате Иванов Иван Иванович")
+                user_message_id1 = message.message_id
+                bot.register_next_step_handler(message, FIO_c, data, user_message_id, user_message_id1)
+    @bot.callback_query_handler(func=lambda call: call.data in ["docsInsYes_podal_z", "docsInsNo_podal_z"])
+    def callback_Zabr_insurance_podal_z(call):
+         
+        user_id = call.message.from_user.id
+
+        data = user_temp_data[user_id]
+        data.update({'vibor1':'no_sogl'})
+        try:
+            client_id, updated_data = save_client_to_db_with_id(data)
+            data.update(updated_data)
+        except Exception as e:
+            print(f"Ошибка базы данных: {e}") 
+
+        if call.data == "docsInsYes_podal_z":
+            data.update({"status": 'Отправлен запрос в страховую'})
+            create_fio_data_file(data)
+            replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
+                        "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                        "{{ Дата_ДТП }}","{{ Время_ДТП }}", "{{ Адрес_ДТП }}","{{ Марка_модель }}","{{ Nавто_клиента }}",
+                        "{{ Марка_модель_виновника }}", "{{ Nавто_виновник }}","{{ ФИОк }}", "{{ Телефон }}"],
+                        [str(data['insurance']), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]),
+                        str(data["number_pasport"]), str(data["where_pasport"]),
+                        str(data["when_pasport"]), str(data["date_dtp"]), str(data["time_dtp"]), 
+                        str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), 
+                        str(data["marks_culp"]), str(data["number_auto_culp"]), str(data["fio_k"]), str(data["number"])],
+                        "Шаблоны\\1. ДТП\\1. На ремонт\\5. Запрос в страховую о выдаче акта и расчёта.docx",
+                            data["fio"]+"\\Документы\\"+"5. Запрос в страховую о выдаче акта и расчёта.docx")
+            
+
+            user_temp_data[user_id] = data
+            time.sleep(1)
+
+            keyboard = types.InlineKeyboardMarkup()
+
+            btn1 = types.InlineKeyboardButton("Да", callback_data=f"ZaprInsYes_podal_z")
+            btn2 = types.InlineKeyboardButton("Нет", callback_data=f"ZaprInsNo_podal_z")
+            keyboard.add(btn1, btn2)
+            bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Документ сформирован, отправить вам его?",
+            reply_markup=keyboard
+            ) 
+        elif call.data == "docsInsNo_podal_z":
+            user_temp_data[user_id] = data 
+            keyboard = types.InlineKeyboardMarkup()
+            btn1 = types.InlineKeyboardButton("Продолжить", callback_data="next1")
+            btn2 = types.InlineKeyboardButton("Главное меню", callback_data="btn_main_menu")
+            keyboard.add(btn1)
+            keyboard.add(btn2)
+            bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Анализируем ответ от страховой\nПродолжить или вернуться в главное меню?",
+            reply_markup=keyboard
+            )
+    @bot.callback_query_handler(func=lambda call: call.data in ["next1"])
+    def callback_podal_zayavl_next1(call):
+        
+        user_id = call.message.from_user.id
+        data = user_temp_data[user_id]
+        clear_chat_history_optimized(call.message, 6)
+        message = bot.send_message(
+            chat_id=call.message.chat.id,
             text="""Подготовьте документы:
-            1. Доверенность
+            1. Ответ страховой
+            2. Экспертное заключение
+            3. Выплатное дело
+            4. Платежное поручение
+            3. Акт омотра авто
             """,
             reply_markup=None
         )
         user_message_id = message.message_id 
-        if data['vibor'] == 'delict':
-            message = bot.send_message(call.message.chat.id, "Введите стоимость услуг нотариуса")
-            user_message_id1 = message.message_id
-            bot.register_next_step_handler(message, coin_not, data, user_message_id, user_message_id1)
-        elif data['vibor'] == 'ceccia':
-            message = bot.send_message(call.message.chat.id, "Введите ФИО цессионария в формате Иванов Иван Иванович")
-            user_message_id1 = message.message_id
-            bot.register_next_step_handler(message, FIO_c, data, user_message_id, user_message_id1)
-    @bot.callback_query_handler(func=lambda call: call.data in ["podal_zayavl_nexto"])
-    def callback_podal_zayavl_nexto(call):
+
+        message = bot.send_message(call.message.chat.id, "Введите входящий номер в страховую")
+        user_message_id1 = message.message_id
+        bot.register_next_step_handler(message, Nv_ins, data, user_message_id, user_message_id1)
+    @bot.callback_query_handler(func=lambda call: call.data in ["next2"])
+    def callback_podal_zayavl_next2(call):
 
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
@@ -262,25 +357,191 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text="""Подготовьте документы:
-            1. Выплатное дело
-            2. Платежное поручение
-            3. Экспертиза
+            1. Нотариальная доверенность
             """,
             reply_markup=None
         )
         user_message_id = message.message_id 
-        if data['vibor'] == 'delict':
+
+        message = bot.send_message(call.message.chat.id, "Введите стоимость услуг нотариуса")
+        user_message_id1 = message.message_id
+        bot.register_next_step_handler(message, coin_not, data, user_message_id, user_message_id1)
+    @bot.callback_query_handler(func=lambda call: call.data in ["next3"])
+    def callback_podal_zayavl_next3(call):
+
+        user_id = call.message.from_user.id
+        data = user_temp_data[user_id]
+         
+        keyboard = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("Да", callback_data="YesRem")
+        btn2 = types.InlineKeyboardButton("Нет", callback_data="Nopret")
+        keyboard.add(btn1)
+        keyboard.add(btn2)
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Удовлетворена ли претензия?",
+            reply_markup=keyboard
+            )
+    @bot.callback_query_handler(func=lambda call: call.data in ["YesRem"])
+    def callback_podal_zayavl_next3yes(call):
+
+        message = bot.send_message(call.message.chat.id, "Направление на ремонт", reply_markup = None)
+        start_handler(message)
+    @bot.callback_query_handler(func=lambda call: call.data in ["Nopret"])
+    def callback_podal_zayavl_next3No(call):
+        user_id = call.message.from_user.id
+        data = user_temp_data[user_id]
+        data.update({"date_ombuc": str(datetime.now().strftime("%d.%m.%Y"))})
+        data.update({"viborRem": "Yes"})
+        
+        try:
+            client_id, updated_data = save_client_to_db_with_id(data)
+            data.update(updated_data)
+        except Exception as e:
+            print(f"Ошибка базы данных: {e}")
+        create_fio_data_file(data)
+        if data['vibor'] == "no_sogl":
+            replace_words_in_word(["{{ Дата_обуцмен }}","{{ Страховая }}", "{{ Город }}","{{ ФИО }}", "{{ ДР }}", "{{ Место }}",
+                                "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                                "{{ Адрес }}", "{{ Телефон }}","{{ Серия_полиса }}", "{{ Номер_полиса }}", "{{ Дата_полиса }}",
+                                "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}",
+                                "{{ Nавто_клиента }}","{{ Дата }}", "{{ Nв_страховую }}","{{ Организация }}", "{{ Nэкспертизы }}", "{{ Дата_экспертизы }}",
+                                "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата_заявления_изменения }}", "{{ Номер_заявления_изменения }}", "{{ ФИОк }}",
+                                "{{ Дата_претензии }}", "{{ Выплата_ОСАГО }}"],
+                                [str(data["date_ombuc"]), str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
+                                    str(data["city_birth"]), str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                    str(data["address"]), str(data["number"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
+                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
+                                    str(data["marks"]), str(data["car_number"]), str(data["date_ins_pod"]), str(data["Nv_ins"]),str(data["org_exp"]),str(data["Na_ins"]),
+                                    str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]), str(data["date_pret"]),
+                                    str(data["Nv_ins"]), str(data["fio_k"]),str(data["date_pret"]), str(data["coin_osago"])],
+                                    "Шаблоны\\1. ДТП\\2. На выплату\\1. заявление на выплату - выплатили\\7. Заявление фин. омбуцмену изменение способа возмещения.docx",
+                                    data["fio"]+"\\Документы\\"+"7. Заявление фин. омбуцмену изменение способа возмещения.docx")
+            data.update({"status": 'Отправлено заявление омбуцмену'}) 
+
+            try:
+                client_id, updated_data = save_client_to_db_with_id(data)
+                data.update(updated_data)
+            except Exception as e:
+                print(f"Ошибка базы данных: {e}")
+            create_fio_data_file(data)
+
             user_id = call.message.from_user.id
-            data = user_temp_data[user_id]
+            user_temp_data[user_id] = data
+            
+            keyboard = types.InlineKeyboardMarkup()
+
+            btn1 = types.InlineKeyboardButton("Да", callback_data="YesPr_podal_z3")
+            btn2 = types.InlineKeyboardButton("Нет", callback_data="NoPr_podal_z3")
+            keyboard.add(btn1, btn2)
+            bot.send_message(call.message.chat.id, "Данные сохранены, отправить вам документы?", reply_markup=keyboard)
+        
+
+
+    @bot.callback_query_handler(func=lambda call: call.data in ["ZaprInsYes_podal_z", "ZaprInsNo_podal_z"])
+    def callback_send_docs_o_podal_z(call):
+         
+        user_id = call.message.from_user.id
+        data = user_temp_data[user_id]
+         
+
+        if call.data == "ZaprInsYes_podal_z":
+            documents = [
+            {"path": data["fio"]+"\\Документы\\"+"5. Запрос в страховую о выдаче акта и расчёта.docx", "name": "Обложка дела"},
+            ]
+            message= bot.send_message(call.message.chat.id, "Отправляю документы...")
+            for doc in documents:
+                try:
+                    with open(doc["path"], 'rb') as document_file:
+                        bot.send_document(
+                            call.message.chat.id, 
+                            document_file,
+                        )   
+                except FileNotFoundError:
+                    bot.send_message(call.message.chat.id, f"Файл не найден: {doc['path']}")
+                except Exception as e:
+                    bot.send_message(call.message.chat.id, f"Ошибка отправки: {e}")
+
+        user_temp_data[user_id] = data
+         
+
+        keyboard = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("Продолжить", callback_data="next1")
+        btn2 = types.InlineKeyboardButton("Карточка клиента", callback_data="btn_podal_zayavl_back")
+        keyboard.add(btn1)
+        keyboard.add(btn2)
+        bot.send_message(call.message.chat.id, "Анализируем ответ от страховой\nПродолжить или вернуться в главное меню?",reply_markup=keyboard) 
+    @bot.callback_query_handler(func=lambda call: call.data in ["podal_zayavl_nexto"])
+    def callback_podal_zayavl_nexto(call):
+
+        user_id = call.message.from_user.id
+        data = user_temp_data[user_id]
+        if data['vibor'] != 'no_sogl': 
+            message = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="""Подготовьте документы:
+                1. Выплатное дело
+                2. Платежное поручение
+                3. Экспертиза
+                """,
+                reply_markup=None
+            )
+            user_message_id = message.message_id 
+            if data['vibor'] == 'delict':
+                message = bot.send_message(call.message.chat.id, "Дату извещения в формате ДД.ММ.ГГГГ")
+                user_message_id1 = message.message_id
+                bot.register_next_step_handler(message, date_izvesh_dtp, data, user_message_id, user_message_id1)
+            elif data['vibor'] == 'ceccia':
+                message = bot.send_message(call.message.chat.id, "Введите номер выплатного дела")
+                user_message_id1 = message.message_id
+                bot.register_next_step_handler(message, N_viplat_work, data, user_message_id, user_message_id1)
+        else:
+            keyboard = types.InlineKeyboardMarkup()
+            btn1 = types.InlineKeyboardButton("Удовлетворил", callback_data="btn_podal_zayavl_oYes")
+            btn2 = types.InlineKeyboardButton("Частично", callback_data="btn_podal_zayavl_oChast")
+            btn3 = types.InlineKeyboardButton("Не удовлетворил", callback_data="btn_podal_zayavl_oNo")
+            keyboard.add(btn1)
+            keyboard.add(btn2)
+            keyboard.add(btn3)
+            message = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Омбуцмен удовлетворил?",
+                reply_markup=keyboard
+            )
+    @bot.callback_query_handler(func=lambda call: call.data in ["btn_podal_zayavl_oYes", "btn_podal_zayavl_oChast", "btn_podal_zayavl_oNo"])
+    def callback_podal_zayavl_nexto_vibor(call):
+
+        user_id = call.message.from_user.id
+        data = user_temp_data[user_id]
+        if call.data == "btn_podal_zayavl_oYes":
+            data['ombuc'] == "Yes"
+            try:
+                client_id, updated_data = save_client_to_db_with_id(data)
+                data.update(updated_data)
+            except Exception as e:
+                print(f"Ошибка базы данных: {e}") 
             clear_chat_history_optimized(call.message, 6)
             callback_client_details2_handler(call.message, data['client_id'])
-            # message = bot.send_message(call.message.chat.id, "Введите стоимость услуг нотариуса")
-            # user_message_id1 = message.message_id
-            # bot.register_next_step_handler(message, coin_not, data, user_message_id, user_message_id1)
-        elif data['vibor'] == 'ceccia':
-            message = bot.send_message(call.message.chat.id, "Введите номер выплатного дела")
+        else:
+            message = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="""Подготовьте документы:
+                1. Принятое заявление омбуцмену
+                2. Ответ омбуцмену
+                3. Независимую техническую экспертизу
+                """,
+                reply_markup=None
+            )
+            user_message_id = message.message_id 
+            message = bot.send_message(call.message.chat.id, "Дату извещения в формате ДД.ММ.ГГГГ")
             user_message_id1 = message.message_id
-            bot.register_next_step_handler(message, N_viplat_work, data, user_message_id, user_message_id1)  
+            bot.register_next_step_handler(message, date_izvesh_dtp, data, user_message_id, user_message_id1)
+            
+            
     @bot.callback_query_handler(func=lambda call: call.data in ["btn_podal_zayavl_rem_city_Tomsk"])
     def callback_podal_zayavl_rem_city(call):
 
@@ -552,15 +813,91 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
         if call.data == "YesPr_podal_z":
             if data['vibor'] == 'delict':
                 documents = [
-                {"path": data["fio"]+"\\"+data["fio"] + "_заявление_ГИБДД.docx", "name": "Заявление в ГИБДД"},
-                {"path": data["fio"]+"\\"+data["fio"] + "_запрос_в_страховую.docx", "name": "Запрос в страховую"},
+                {"path": data["fio"]+"\\Документы\\" + "Деликт 3. Заявление о выдаче копии справки участников ДТП.docx", "name": "Заявление в ГИБДД"},
+                {"path": data["fio"]+"\\Документы\\" + "Деликт 4. Запрос в страховую о выдаче акта и расчёта.docx", "name": "Запрос в страховую"},
                 ]
             elif data['vibor'] == 'ceccia':
                 documents = [
-                {"path": data["fio"]+"\\"+data["fio"] + "_соглашение_цессии.docx", "name": "Соглашение Цессии"},
-                {"path": data["fio"]+"\\"+data["fio"] + "_договор_цессии.docx", "name": "Договор Цессиии"},
-                {"path": data["fio"]+"\\"+data["fio"] + "_досуд_урег_цессии.docx", "name": "Досудебное урегулирование"},
+                {"path": data["fio"]+"\\Документы\\" + "Цессия 5. Соглашение о замене стороны Цессия.docx", "name": "Соглашение Цессии"},
+                {"path": data["fio"]+"\\Документы\\" + "Цессия 6. Договор цессии.docx", "name": "Договор Цессиии"},
+                {"path": data["fio"]+"\\Документы\\"+ "Цессия 7. Предложение о досудебном урегулировании спора.docx", "name": "Досудебное урегулирование"},
                 ]
+            elif data['vibor'] =='no_sogl':
+                documents = [
+                {"path": data["fio"]+"\\Документы\\" + "6. Претензия о замене способа возмещения.docx", "name": "Претензия в страховую"}
+                ]
+            
+            message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Отправляю документы...",
+            reply_markup=None
+            )
+            for doc in documents:
+                try:
+                    with open(doc["path"], 'rb') as document_file:
+                        bot.send_document(
+                            call.message.chat.id, 
+                            document_file,
+                        )   
+                except FileNotFoundError:
+                    bot.send_message(call.message.chat.id, f"Файл не найден: {doc['path']}")
+                except Exception as e:
+                    bot.send_message(call.message.chat.id, f"Ошибка отправки: {e}")
+        user_id = call.message.from_user.id
+        user_temp_data[user_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("Карточка клиента", callback_data="btn_podal_zayavl_back")
+        keyboard.add(btn1)
+        bot.send_message(call.message.chat.id, "При необходимости скачайте документы, после выхода в карточку клиента сообщения удалятся", reply_markup=keyboard)
+    @bot.callback_query_handler(func=lambda call: call.data in ["YesPr_podal_z2", "NoPr_podal_z2"])
+    def callback_send_docs_podal_zayavl2(call):
+
+        user_id = call.message.from_user.id
+        
+        data = user_temp_data[user_id]
+
+        if call.data == "YesPr_podal_z2":
+            
+            documents = [
+            {"path": data["fio"]+"\\Документы\\" + "5. Заявление в страховую об изменении формы страхового возмещения выплатили.docx", "name": "Заявление в ГИБДД"}
+            ]
+            
+            message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Отправляю документы...",
+            reply_markup=None
+            )
+            for doc in documents:
+                try:
+                    with open(doc["path"], 'rb') as document_file:
+                        bot.send_document(
+                            call.message.chat.id, 
+                            document_file,
+                        )   
+                except FileNotFoundError:
+                    bot.send_message(call.message.chat.id, f"Файл не найден: {doc['path']}")
+                except Exception as e:
+                    bot.send_message(call.message.chat.id, f"Ошибка отправки: {e}")
+        user_id = call.message.from_user.id
+        user_temp_data[user_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("Карточка клиента", callback_data="btn_podal_zayavl_back")
+        keyboard.add(btn1)
+        bot.send_message(call.message.chat.id, "При необходимости скачайте документы, после выхода в карточку клиента сообщения удалятся", reply_markup=keyboard)
+    @bot.callback_query_handler(func=lambda call: call.data in ["YesPr_podal_z3", "NoPr_podal_z3"])
+    def callback_send_docs_podal_zayavl2(call):
+
+        user_id = call.message.from_user.id
+        
+        data = user_temp_data[user_id]
+
+        if call.data == "YesPr_podal_z3":
+            
+            documents = [
+            {"path": data["fio"]+"\\Документы\\" + "7. Заявление фин. омбуцмену изменение способа возмещения.docx", "name": "Заявление в ГИБДД"}
+            ]
             
             message = bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -593,11 +930,14 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
         data = user_temp_data[user_id]
 
         if call.data == "YesIsk_podal_z":
-            
-            documents = [
-            {"path": data["fio"]+"\\"+data["fio"] + "_исковое_заявление.docx", "name": "Исковое заявление"},
-            ]
-            
+            if data['vibor'] == "delict" or data['vibor'] == 'no_sogl':
+                documents = [
+                {"path": data["fio"]+"\\"+data["fio"] + "Деликт 5.  Исковое заявление.docx", "name": "Исковое заявление"},
+                ]
+            elif data['vibor'] == "ceccia":
+                documents = [
+                {"path": data["fio"]+"\\"+data["fio"] + "Цессия 8. Исковое заявление Цессия.docx", "name": "Исковое заявление"},
+                ]
             message = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -629,24 +969,45 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
         data = user_temp_data[user_id]
 
         if call.data == "Yes_podal_zayavl":
-            if data['vibor'] == 'no_money':
-                documents = [
-            {"path": data["fio"]+"\\"+data["fio"] + "_обложка.docx", "name": "Обложка дела"},
-            {"path": data["fio"]+"\\"+data["fio"] + "_юр_договор.docx", "name": "Юридический договор"},
-            {"path": data["fio"]+"\\"+data["fio"] + "_заявление_в_страховую.docx", "name": "Заявление в страховую"},
-            ]
-            elif data['vibor'] == 'ceccia':
-                documents = [
-            {"path": data["fio"]+"\\"+data["fio"] + "_обложка.docx", "name": "Обложка дела"},
-            {"path": data["fio"]+"\\"+data["fio"] + "_юр_договор.docx", "name": "Юридический договор"},
-            {"path": data["fio"]+"\\"+data["fio"] + "_заявление_ГИБДД.docx", "name": "Заявление в ГИБДД"},
-            {"path": data["fio"]+"\\"+data["fio"] + "_запрос_в_страховую.docx", "name": "Запрос в страховую"},
-            ]
-            else:
-                documents = [
-                {"path": data["fio"]+"\\"+data["fio"] + "_обложка.docx", "name": "Обложка дела"},
-                {"path": data["fio"]+"\\"+data["fio"] + "_юр_договор.docx", "name": "Юридический договор"},
+            if data["sobstvenik"]=="Yes":
+                if data['vibor'] == 'no_money':
+                    documents = [
+                {"path": data["fio"]+"\\Документы\\" + "1. Обложка дела.docx", "name": "Обложка дела"},
+                {"path": data["fio"]+"\\Документы\\" + "2. Юр договор.docx", "name": "Юридический договор"},
+                {"path": data["fio"]+"\\Документы\\" + "3. Заявление в страховую об изменении формы страхового возмещения не выплатили.docx", "name": "Заявление в страховую"},
                 ]
+                elif data['vibor'] == 'ceccia':
+                    documents = [
+                {"path": data["fio"]+"\\Документы\\" + "1. Обложка дела.docx", "name": "Обложка дела"},
+                {"path": data["fio"]+"\\Документы\\"+ "2. Юр договор.docx", "name": "Юридический договор"},
+                {"path": data["fio"]+"\\Документы\\" + "Цессия 3. Заявление о выдаче копии справки участников ДТП.docx", "name": "Заявление в ГИБДД"},
+                {"path": data["fio"]+"\\Документы\\"+ "Цессия 4. Запрос в страховую о выдаче акта и расчёта.docx", "name": "Запрос в страховую"},
+                ]
+                else:
+                    documents = [
+                    {"path": data["fio"]+"\\Документы\\" + "1. Обложка дела.docx", "name": "Обложка дела"},
+                    {"path": data["fio"]+"\\Документы\\" + "2. Юр договор.docx", "name": "Юридический договор"},
+                    ]
+            else:
+                if data['vibor'] == 'no_money':
+                    documents = [
+                {"path": data["fio"]+"\\Документы\\" + "1. Обложка дела.docx", "name": "Обложка дела"},
+                {"path": data["fio"]+"\\Документы\\" + "2. Юр договор.docx", "name": "Юридический договор"},
+                {"path": data["fio"]+"\\Документы\\" + "3. Заявление в страховую об изменении формы страхового возмещения не выплатили.docx", "name": "Заявление в страховую"},
+                ]
+                elif data['vibor'] == 'ceccia':
+                    documents = [
+                {"path": data["fio"]+"\\Документы\\" + "1. Обложка дела.docx", "name": "Обложка дела"},
+                {"path": data["fio"]+"\\Документы\\"+ "2. Юр договор.docx", "name": "Юридический договор"},
+                {"path": data["fio"]+"\\Документы\\" + "Цессия 3. Заявление о выдаче копии справки участников ДТП.docx", "name": "Заявление в ГИБДД"},
+                {"path": data["fio"]+"\\Документы\\"+ "Цессия 4. Запрос в страховую о выдаче акта и расчёта.docx", "name": "Запрос в страховую"},
+                ]
+                else:
+                    documents = [
+                    {"path": data["fio"]+"\\Документы\\" + "1. Обложка дела.docx", "name": "Обложка дела"},
+                    {"path": data["fio"]+"\\Документы\\" + "2. Юр договор.docx", "name": "Юридический договор"},
+                    ]
+
             message = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -730,8 +1091,8 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                                         str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
                                         str(data["number"]), str(data["fio_k"])],
                                         "Шаблоны\\1. ДТП\\2. На выплату\\4. Деликт\\Деликт 3. Заявление о выдаче копии справки участников ДТП.docx",
-                                        data["fio"]+"\\"+data["fio"]+"_заявление_ГИБДД.docx")
-                replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}"
+                                        data["fio"]+"\\Документы\\"+"Деликт 3. Заявление о выдаче копии справки участников ДТП.docx")
+                replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}",
                                     "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}","{{ Паспорт_когда }}", "{{ Дата_ДТП }}",
                                     "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}","{{ Nавто_клиента }}","{{ Марка_модель_виновника }}",
                                     "{{ Nавто_виновник }}", "{{ Телефон }}", "{{ ФИОк }}"],
@@ -740,10 +1101,10 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                                         str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
                                         str(data["number"]), str(data["fio_k"])],
                                         "Шаблоны\\1. ДТП\\2. На выплату\\4. Деликт\\Деликт 4. Запрос в страховую о выдаче акта и расчёта.docx",
-                                        data["fio"]+"\\"+data["fio"]+"_запрос_в_страховую.docx")
+                                        data["fio"]+"\\Документы\\"+"Деликт 4. Запрос в страховую о выдаче акта и расчёта.docx")
                 data.update({"status": 'Отправлен запрос в страховую'}) 
             elif data['vibor'] == "ceccia":
-                if len(data['fio_culp'])==2:
+                if len(data['fio_culp'].split())==2:
                     fio_culp_k = data['fio_culp'].split()[0]+" "+list(data['fio_culp'].split()[1])[0]+"."
                 else:
                     fio_culp_k = data['fio_culp'].split()[0]+" "+list(data['fio_culp'].split()[1])[0]+"."+list(data['fio_culp'].split()[2])[0]+"."
@@ -760,8 +1121,8 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                                         str(data["fio"]), str(data["date_of_birth"]),str(data["city_birth"]), str(data["seria_pasport"]),
                                         str(data["number_pasport"]), str(data["where_pasport"]), str(data["when_pasport"]), str(data["index_postal"]),str(data["address"]), 
                                         str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"])],
-                                        "Шаблоны\\1. ДТП\\2. На выплату\\4. Деликт\\Цессия 5. Соглашение о замене стороны Цессия.docx",
-                                        data["fio"]+"\\"+data["fio"]+"_соглашение_цессии.docx")
+                                        "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 5. Соглашение о замене стороны Цессия.docx",
+                                        data["fio"]+"\\Документы\\"+"Цессия 5. Соглашение о замене стороны Цессия.docx")
                 replace_words_in_word(["{{ Год }}", "{{ NКлиента }}", "{{ Дата }}", 
                                     "{{ Город }}", "{{ ЦФИО }}","{{ ЦДР }}", "{{ ЦМесто }}",
                                     "{{ ЦПаспорт_серия }}", "{{ ЦПаспорт_номер }}", "{{ ЦПаспорт_выдан }}","{{ ЦПаспорт_когда }}","{{ ЦИндекс }}",
@@ -778,19 +1139,38 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                                         str(data["number_pasport"]), str(data["where_pasport"]), str(data["when_pasport"]), str(data["index_postal"]),str(data["address"]), 
                                         str(data["fio_culp"]), str(data["date_of_birth_culp"]), str(data["index_culp"]), str(data["address_culp"]),str(float(data["coin_exp"])-float(data['coin_osago'])), 
                                         str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),
-                                        str(data["number_auto_culp"]), str(fio_culp_k), str(data["coin_exp"]), str(data["coin_osago"]),str(data["coin_exp_izn"]),
+                                        str(data["number_auto_culp"]), str(fio_culp_k), str(data["coin_exp"]), str(data["coin_osago"]),str(data["money_exp"]),
                                         str(data["date_exp"]), str(data["date_pret"]), str(data["coin_c"]), str(data["number"]), str(data["fio_k"]), str(data["number_c"]),str(data["fio_c_k"])],
-                                        "Шаблоны\\1. ДТП\\2. На выплату\\Цессия 6. Договор цессии.docx",
-                                        data["fio"]+"\\"+data["fio"]+"_договор_цессии.docx")
+                                        "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 6. Договор цессии.docx",
+                                        data["fio"]+"\\Документы\\"+"Цессия 6. Договор цессии.docx")
                 replace_words_in_word(["{{ винФИО }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
                                     "{{ Разница }}", "{{ ФИО }}","{{ Год }}", "{{ NКлиента }}",
                                     "{{ Дата }}", "{{ ЦФИО }}"],
                                     [str(data["fio_culp"]), str(data["date_dtp"]), str(data["time_dtp"]), str(float(data["coin_exp"])-float(data['coin_osago'])),
                                         str(data["fio"]), str(data["year"]),str(data["client_id"]), str(data["pret"]),
                                         str(data["fio_c"])],
-                                        "Шаблоны\\1. ДТП\\2. На выплату\\Цессия 7. Предложение о досудебном урегулировании спора.docx",
-                                        data["fio"]+"\\"+data["fio"]+"_досуд_урег_цессии.docx")
+                                        "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 7. Предложение о досудебном урегулировании спора.docx",
+                                        data["fio"]+"\\Документы\\"+"Цессия 7. Предложение о досудебном урегулировании спора.docx")
                 data.update({"status": 'Отправлено предложение о досудебном урегулировании'})
+            elif data['vibor'] == "no_sogl":
+                replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}","{{ ДР }}", 
+                                    "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                                    "{{ NДоверенности }}","{{ Дата_доверенности }}", "{{ Представитель }}",
+                                    "{{ Nакта_осмотра }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}",
+                                    "{{ Nавто_клиента }}", "{{ Дата_подачи_заявления }}","{{ Организация }}", "{{ Дата_экспертизы }}",
+                                    "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата }}","{{ Номер_заявления_изменения }}", "{{ ФИОк }}", "{{ Выплата_ОСАГО }}",
+                                    "{{ Дата_претензии }}"],
+                                    [str(data["insurance"]), str(data["city"]),str(data["fio"]), str(data["date_of_birth"]),
+                                        str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                        str(data["N_dov_not"]), str(data["data_dov_not"]),str(data["fio_not"]), 
+                                        str(data["Na_ins"]),str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
+                                        str(data["marks"]), str(data["car_number"]),str(data["date_insurance"]), str(data["org_exp"]),
+                                        str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]), str(data["pret"]),
+                                        str(data["Nv_ins"]), str(data["fio_k"]),str(data["coin_osago"]), str(data["date_pret"]),],
+                                        "Шаблоны\\1. ДТП\\2. На выплату\\1. заявление на выплату - выплатили\\6. Претензия о замене способа возмещения.docx",
+                                        data["fio"]+"\\Документы\\"+"6. Претензия о замене способа возмещения.docx")
+                data.update({"status": 'Отправлена претензия в страховую'})
+                data.update({"answer_ins": 'Yes'})
             data.update({"vibor1": 'Yes'})  
             try:
                 client_id, updated_data = save_client_to_db_with_id(data)
@@ -830,9 +1210,13 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
         callback_client_details2_handler(call.message, data['client_id'])
 
 def FIO(message, data, user_message_id, user_message_id1):
-    bot.delete_message(message.chat.id, user_message_id)
-    bot.delete_message(message.chat.id, user_message_id1)
-    bot.delete_message(message.chat.id, message.message_id)
+    if user_message_id1 == user_message_id:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, message.message_id)
+    else:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, user_message_id1)
+        bot.delete_message(message.chat.id, message.message_id)
     if len(message.text.split())<2:
             message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите ФИО клиента в формате Иванов Иван Иванович".format(message.from_user))
             user_message_id = message.message_id
@@ -1371,7 +1755,7 @@ def INN(message, data, user_message_id):
         data.update({"date_sto": ''})
         data.update({"time_sto": ''})
         data.update({"address_sto": ''})
-        data.update({"coin_exp_izn": ''})
+        data.update({"money_exp": ''})
         data.update({"coin_osago": ''})
         data.update({"coin_not": ''})
         data.update({"N_dov_not": ''})
@@ -1388,7 +1772,11 @@ def INN(message, data, user_message_id):
         if data['vibor'] == "no_money":
             data.update({"status": 'Отправлено заявление в страховую'})
         elif data['vibor'] == "ceccia":
+            data['analis_ins']=='No'
             data.update({"status": 'Отправлен запрос в страховую'})
+        elif data['vibor'] == "delict":
+            data['analis_ins']=='No'
+            data.update({"status": 'Заполнен договор'})
         else:
             data.update({"status": 'Заполнен договор'})
         try:
@@ -1405,16 +1793,16 @@ def INN(message, data, user_message_id):
                                 "{{ Страховая }}", "{{ винФИО }}"],
                                 [str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
                                     str(data['year']),str(data['client_id']), str(data["fio"]), str(data["insurance"]), str(data["fio_culp"])],
-                                    "Шаблоны\\1. ДТП\\1. На ремонт\\1. Обложка дела\\1.ab Обложка дела.docx",
-                                    data["fio"]+"\\"+data["fio"]+"_обложка.docx")
+                                    "Шаблоны\\1. ДТП\\1. На ремонт\\1. Обложка дела.docx",
+                                    data["fio"]+"\\Документы\\"+"1. Обложка дела.docx")
         elif data["sobstvenik"]=="No":
             replace_words_in_word(["{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", 
                                 "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Год }}","{{ NКлиента }}", "{{ ФИО }}",
-                                "{{ Страховая }}", "{{ винФИО }}", "{{ собТС_ФИО }}"],
+                                "{{ Страховая }}", "{{ винФИО }}"],
                                 [str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
-                                    str(data['year']),str(data['client_id']), str(data["fio"]), str(data["insurance"]), str(data["fio_culp"]), str(data["fio_sobs"])],
-                                    "Шаблоны\\1. ДТП\\1. На ремонт\\1. Обложка дела\\1.cd Обложка дела.docx",
-                                    data["fio"]+"\\"+data["fio"]+"_обложка.docx")
+                                    str(data['year']),str(data['client_id']), str(data["fio"]), str(data["insurance"]), str(data["fio_culp"])],
+                                    "Шаблоны\\1. ДТП\\1. На ремонт\\1. Обложка дела.docx",
+                                    data["fio"]+"\\Документы\\"+"1. Обложка дела.docx")
         #Юр.Договор
         replace_words_in_word(["{{ Год }}", "{{ NКлиента }}", "{{ Город }}", 
                             "{{ Дата }}", "{{ ФИО }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}",
@@ -1425,7 +1813,7 @@ def INN(message, data, user_message_id):
                                 str(data["when_pasport"]), str(data["index_postal"]), str(data["address"]), str(data["date_dtp"]), str(data["time_dtp"]), 
                                 str(data["address_dtp"]), str(data["fio_k"])],
                                 "Шаблоны\\1. ДТП\\1. На ремонт\\2. Юр договор.docx",
-                                data["fio"]+"\\"+data["fio"]+"_юр_договор.docx")
+                                data["fio"]+"\\Документы\\"+"2. Юр договор.docx")
         if data['vibor'] == "no_money":
             replace_words_in_word(["{{ Страховая }}", "{{ ФИО }}", "{{ ДР }}", 
                         "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
@@ -1437,7 +1825,7 @@ def INN(message, data, user_message_id):
                             str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),str(data["date_ins_pod"]), 
                             str(data["seria_docs"]), str(data["number_docs"]), str(data["city"]), str(data["date_ins"]), str(data["fio_k"])],
                             "Шаблоны\\1. ДТП\\2. На выплату\\2. заявление на выплату - не выплатили\\3. Заявление в страховую об изменении формы страхового возмещения не выплатили.docx",
-                            data["fio"]+"\\"+data["fio"]+"_заявление_в_страховую.docx")
+                            data["fio"]+"\\Документы\\"+"3. Заявление в страховую об изменении формы страхового возмещения не выплатили.docx")
         elif data['vibor'] == "ceccia":
                 replace_words_in_word(["{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}", 
                                     "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}","{{ Паспорт_когда }}", "{{ Дата_ДТП }}",
@@ -1448,7 +1836,7 @@ def INN(message, data, user_message_id):
                                         str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
                                         str(data["number"]), str(data["fio_k"])],
                                         "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 3. Заявление о выдаче копии справки участников ДТП.docx",
-                                        data["fio"]+"\\"+data["fio"]+"_заявление_ГИБДД.docx")
+                                        data["fio"]+"\\Документы\\"+"Цессия 3. Заявление о выдаче копии справки участников ДТП.docx")
                 replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}",
                                     "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}","{{ Паспорт_когда }}", "{{ Дата_ДТП }}",
                                     "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}","{{ Nавто_клиента }}","{{ Марка_модель_виновника }}",
@@ -1458,7 +1846,7 @@ def INN(message, data, user_message_id):
                                         str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
                                         str(data["number"]), str(data["fio_k"])],
                                         "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 4. Запрос в страховую о выдаче акта и расчёта.docx",
-                                        data["fio"]+"\\"+data["fio"]+"_запрос_в_страховую.docx")
+                                        data["fio"]+"\\Документы\\"+"Цессия 4. Запрос в страховую о выдаче акта и расчёта.docx")
         
         user_id = message.from_user.id
         user_temp_data[user_id] = data
@@ -1479,12 +1867,12 @@ def INN(message, data, user_message_id):
 
 
 def coin_not(message, data, user_message_id, user_message_id1):
-    if data['vibor'] == 'delict':
+    if user_message_id1 == user_message_id:
         bot.delete_message(message.chat.id, user_message_id)
-        bot.delete_message(message.chat.id, user_message_id1)
         bot.delete_message(message.chat.id, message.message_id)
     else:
         bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, user_message_id1)
         bot.delete_message(message.chat.id, message.message_id)
     data.update({"coin_not": message.text})
     message = bot.send_message(message.chat.id, text="Введите номер доверенности".format(message.from_user))
@@ -1573,8 +1961,8 @@ def number_not(message, data, user_message_id):
                                     str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
                                     str(data["number"]), str(data["fio_k"])],
                                     "Шаблоны\\1. ДТП\\2. На выплату\\4. Деликт\\Деликт 3. Заявление о выдаче копии справки участников ДТП.docx",
-                                    data["fio"]+"\\"+data["fio"]+"_заявление_ГИБДД.docx")
-            replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}"
+                                    data["fio"]+"\\Документы\\"+"Деликт 3. Заявление о выдаче копии справки участников ДТП.docx")
+            replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}",
                                 "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}","{{ Паспорт_когда }}", "{{ Дата_ДТП }}",
                                 "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}","{{ Nавто_клиента }}","{{ Марка_модель_виновника }}",
                                 "{{ Nавто_виновник }}", "{{ Телефон }}", "{{ ФИОк }}"],
@@ -1583,10 +1971,11 @@ def number_not(message, data, user_message_id):
                                     str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
                                     str(data["number"]), str(data["fio_k"])],
                                     "Шаблоны\\1. ДТП\\2. На выплату\\4. Деликт\\Деликт 4. Запрос в страховую о выдаче акта и расчёта.docx",
-                                    data["fio"]+"\\"+data["fio"]+"_запрос_в_страховую.docx")
+                                    data["fio"]+"\\Документы\\"+"Деликт 4. Запрос в страховую о выдаче акта и расчёта.docx")
             data.update({"status": 'Отправлен запрос в страховую'})
+            data.update({"vibor1": 'Yes'}) 
         elif data['vibor'] == "ceccia":
-            if len(data['fio_culp'])==2:
+            if len(data['fio_culp'].split())==2:
                 fio_culp_k = data['fio_culp'].split()[0]+" "+list(data['fio_culp'].split()[1])[0]+"."
             else:
                 fio_culp_k = data['fio_culp'].split()[0]+" "+list(data['fio_culp'].split()[1])[0]+"."+list(data['fio_culp'].split()[2])[0]+"."
@@ -1603,8 +1992,8 @@ def number_not(message, data, user_message_id):
                                     str(data["fio"]), str(data["date_of_birth"]),str(data["city_birth"]), str(data["seria_pasport"]),
                                     str(data["number_pasport"]), str(data["where_pasport"]), str(data["when_pasport"]), str(data["index_postal"]),str(data["address"]), 
                                     str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"])],
-                                    "Шаблоны\\1. ДТП\\2. На выплату\\4. Деликт\\Цессия 5. Соглашение о замене стороны Цессия.docx",
-                                    data["fio"]+"\\"+data["fio"]+"_соглашение_цессии.docx")
+                                    "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 5. Соглашение о замене стороны Цессия.docx",
+                                    data["fio"]+"\\Документы\\"+"Цессия 5. Соглашение о замене стороны Цессия.docx")
             replace_words_in_word(["{{ Год }}", "{{ NКлиента }}", "{{ Дата }}", 
                                 "{{ Город }}", "{{ ЦФИО }}","{{ ЦДР }}", "{{ ЦМесто }}",
                                 "{{ ЦПаспорт_серия }}", "{{ ЦПаспорт_номер }}", "{{ ЦПаспорт_выдан }}","{{ ЦПаспорт_когда }}","{{ ЦИндекс }}",
@@ -1621,20 +2010,39 @@ def number_not(message, data, user_message_id):
                                     str(data["number_pasport"]), str(data["where_pasport"]), str(data["when_pasport"]), str(data["index_postal"]),str(data["address"]), 
                                     str(data["fio_culp"]), str(data["date_of_birth_culp"]), str(data["index_culp"]), str(data["address_culp"]),str(float(data["coin_exp"])-float(data['coin_osago'])), 
                                     str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),
-                                    str(data["number_auto_culp"]), str(fio_culp_k), str(data["coin_exp"]), str(data["coin_osago"]),str(data["coin_exp_izn"]),
+                                    str(data["number_auto_culp"]), str(fio_culp_k), str(data["coin_exp"]), str(data["coin_osago"]),str(data["money_exp"]),
                                     str(data["date_exp"]), str(data["date_pret"]), str(data["coin_c"]), str(data["number"]), str(data["fio_k"]), str(data["number_c"]),str(data["fio_c_k"])],
-                                    "Шаблоны\\1. ДТП\\2. На выплату\\Цессия 6. Договор цессии.docx",
-                                    data["fio"]+"\\"+data["fio"]+"_договор_цессии.docx")
+                                    "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 6. Договор цессии.docx",
+                                    data["fio"]+"\\Документы\\"+"Цессия 6. Договор цессии.docx")
             replace_words_in_word(["{{ винФИО }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
                                 "{{ Разница }}", "{{ ФИО }}","{{ Год }}", "{{ NКлиента }}",
                                 "{{ Дата }}", "{{ ЦФИО }}"],
                                 [str(data["fio_culp"]), str(data["date_dtp"]), str(data["time_dtp"]), str(float(data["coin_exp"])-float(data['coin_osago'])),
                                     str(data["fio"]), str(data["year"]),str(data["client_id"]), str(data["pret"]),
                                     str(data["fio_c"])],
-                                    "Шаблоны\\1. ДТП\\2. На выплату\\Цессия 7. Предложение о досудебном урегулировании спора.docx",
-                                    data["fio"]+"\\"+data["fio"]+"_досуд_урег_цессии.docx")
+                                    "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 7. Предложение о досудебном урегулировании спора.docx",
+                                    data["fio"]+"\\Документы\\"+"Цессия 7. Предложение о досудебном урегулировании спора.docx")
             data.update({"status": 'Отправлено предложение о досудебном урегулировании'})
-        data.update({"vibor1": 'Yes'}) 
+            data.update({"vibor1": 'Yes'}) 
+        elif data['vibor'] == "no_sogl":
+            replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}","{{ ДР }}", 
+                                "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                                "{{ NДоверенности }}","{{ Дата_доверенности }}", "{{ Представитель }}",
+                                "{{ Nакта_осмотра }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}",
+                                "{{ Nавто_клиента }}", "{{ Дата_подачи_заявления }}","{{ Организация }}", "{{ Дата_экспертизы }}",
+                                "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата }}","{{ Номер_заявления_изменения }}", "{{ ФИОк }}", "{{ Выплата_ОСАГО }}",
+                                "{{ Дата_претензии }}"],
+                                [str(data["insurance"]), str(data["city"]),str(data["fio"]), str(data["date_of_birth"]),
+                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                    str(data["N_dov_not"]), str(data["data_dov_not"]),str(data["fio_not"]), 
+                                    str(data["Na_ins"]),str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
+                                    str(data["marks"]), str(data["car_number"]),str(data["date_insurance"]), str(data["org_exp"]),
+                                    str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]), str(data["pret"]),
+                                    str(data["Nv_ins"]), str(data["fio_k"]),str(data["coin_osago"]), str(data["date_pret"]),],
+                                    "Шаблоны\\1. ДТП\\2. На выплату\\1. заявление на выплату - выплатили\\6. Претензия о замене способа возмещения.docx",
+                                    data["fio"]+"\\Документы\\"+"6. Претензия о замене способа возмещения.docx")
+            data.update({"status": 'Отправлена претензия в страховую'})
+            data.update({"answer_ins": 'Yes'})
         try:
             client_id, updated_data = save_client_to_db_with_id(data)
             data.update(updated_data)
@@ -1653,9 +2061,13 @@ def number_not(message, data, user_message_id):
         bot.send_message(message.chat.id, "Данные сохранены, отправить вам документы?", reply_markup=keyboard)
 
 def FIO_c(message, data, user_message_id, user_message_id1):
-    bot.delete_message(message.chat.id, user_message_id)
-    bot.delete_message(message.chat.id, user_message_id1)
-    bot.delete_message(message.chat.id, message.message_id)
+    if user_message_id1 == user_message_id:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, message.message_id)
+    else:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, user_message_id1)
+        bot.delete_message(message.chat.id, message.message_id)
     if len(message.text.split())<2:
             message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите ФИО Цессионария в формате Иванов Иван Иванович".format(message.from_user))
             user_message_id = message.message_id
@@ -1731,7 +2143,7 @@ def index_c(message, data, user_message_id):
     if len(message.text.replace(" ", "")) != 6 or not message.text.replace(" ", "").isdigit():
         message = bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр!\nВведите почтовый индекс Цессионария, например, 123456".format(message.from_user))
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, index, data, user_message_id)
+        bot.register_next_step_handler(message, index_c, data, user_message_id)
     else:
         data.update({"index_postal_c": int(message.text.replace(" ", ""))})
         message = bot.send_message(message.chat.id, text="Дату рождения Цессионария в формате ДД.ММ.ГГГГ".format(message.from_user))
@@ -1770,11 +2182,16 @@ def number_c(message, data, user_message_id):
         data.update({"number_c": message.text})
         message = bot.send_message(message.chat.id, text="Введите серию ВУ виновника ДТП".format(message.from_user))
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, seria_vu_culp, data, user_message_id)
+        bot.register_next_step_handler(message, seria_vu_culp, data, user_message_id, user_message_id)
 
-def seria_vu_culp(message, data, user_message_id):
-    bot.delete_message(message.chat.id, user_message_id)
-    bot.delete_message(message.chat.id, message.message_id)
+def seria_vu_culp(message, data, user_message_id, user_message_id1):
+    if user_message_id1 == user_message_id:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, message.message_id)
+    else:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, user_message_id1)
+        bot.delete_message(message.chat.id, message.message_id)
     data.update({"seria_vu_culp": message.text})
     message = bot.send_message(message.chat.id, text="Введите номер ВУ виновника".format(message.from_user))
     user_message_id = message.message_id
@@ -1842,23 +2259,34 @@ def number_culp(message, data, user_message_id):
         data.update({"number_culp": message.text})
         message = bot.send_message(message.chat.id, text="Введите дату независимой экспертизы в формате ДД.ММ.ГГГГ".format(message.from_user))
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, date_exp, data, user_message_id)
+        bot.register_next_step_handler(message, date_exp, data, user_message_id, user_message_id)
 
-def date_exp(message, data, user_message_id):
-    bot.delete_message(message.chat.id, user_message_id)
-    bot.delete_message(message.chat.id, message.message_id)
+def date_exp(message, data, user_message_id, user_message_id1):
+    if user_message_id1 == user_message_id:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, message.message_id)
+    else:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, user_message_id1)
+        bot.delete_message(message.chat.id, message.message_id)
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"date_exp": message.text})
-        message = bot.send_message(message.chat.id, text="Введите цену по независимой экспертизе".format(message.from_user))
+        message = bot.send_message(message.chat.id, text="Введите организацию, сделавшую экспетризу".format(message.from_user))
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, coin_exp, data, user_message_id)
+        bot.register_next_step_handler(message, org_exp, data, user_message_id)
 
     except ValueError:
         message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату независимой экспертизы в формате ДД.ММ.ГГГГ".format(message.from_user))
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, date_exp, data, user_message_id)
-
+        bot.register_next_step_handler(message, date_exp, data, user_message_id, user_message_id)
+def org_exp(message, data, user_message_id):
+    bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, message.message_id)
+    data.update({"org_exp": message.text})
+    message = bot.send_message(message.chat.id, text="Введите цену по независимой экспертизе без учета износа".format(message.from_user))
+    user_message_id = message.message_id
+    bot.register_next_step_handler(message, coin_exp, data, user_message_id)
 def coin_exp(message, data, user_message_id):
     bot.delete_message(message.chat.id, user_message_id)
     bot.delete_message(message.chat.id, message.message_id)
@@ -1866,14 +2294,14 @@ def coin_exp(message, data, user_message_id):
         data.update({"coin_exp": message.text})
         message = bot.send_message(
             message.chat.id,
-            text="Введите стоимость экспертизы"
+            text="Введите цену по независимой экспертизе с учетом износа"
         )
         user_message_id = message.message_id
         bot.register_next_step_handler(message, coin_exp_izn, data, user_message_id)
     else:
         message = bot.send_message(
             message.chat.id,
-            text="Неправильный формат, цена должна состоять только из цифр в рублях!\nВведите цену по независимой экспертизе"
+            text="Неправильный формат, цена должна состоять только из цифр в рублях!\nВведите цену по независимой экспертизе без учета износа"
         )
         user_message_id = message.message_id
         bot.register_next_step_handler(message, coin_exp, data, user_message_id)
@@ -1882,6 +2310,24 @@ def coin_exp_izn(message, data, user_message_id):
     bot.delete_message(message.chat.id, message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"coin_exp_izn": message.text})
+        message = bot.send_message(
+            message.chat.id,
+            text="Введите стоимость экспертизы"
+        )
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, money_exp, data, user_message_id)
+    else:
+        message = bot.send_message(
+            message.chat.id,
+            text="Неправильный формат, цена должна состоять только из цифр в рублях!\nВведите цену по независимой экспертизе с учетом износа"
+        )
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, coin_exp_izn, data, user_message_id)
+def money_exp(message, data, user_message_id):
+    bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, message.message_id)
+    if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
+        data.update({"money_exp": message.text})
         message = bot.send_message(
             message.chat.id,
             text="Введите сумму выплаты по ОСАГО"
@@ -1894,18 +2340,68 @@ def coin_exp_izn(message, data, user_message_id):
             text="Неправильный формат, цена должна состоять только из цифр в рублях!\nВведите стоимость экспертизы"
         )
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, coin_exp_izn, data, user_message_id)
+        bot.register_next_step_handler(message, money_exp, data, user_message_id)
 def coin_osago(message, data, user_message_id):
     bot.delete_message(message.chat.id, user_message_id)
     bot.delete_message(message.chat.id, message.message_id)
     if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
         data.update({"coin_osago": message.text})
-        message = bot.send_message(
-            message.chat.id,
-            text="Введите цену цессии"
-            )
-        user_message_id = message.message_id
-        bot.register_next_step_handler(message, coin_c, data, user_message_id)
+        data.update({"pret": str(datetime.now().strftime("%d.%m.%Y"))})
+        data.update({"date_pret": str((datetime.now() + timedelta(weeks=2)).strftime("%d.%m.%Y"))})
+        
+        try:
+            client_id, updated_data = save_client_to_db_with_id(data)
+            data.update(updated_data)
+        except Exception as e:
+            print(f"Ошибка базы данных: {e}")
+        create_fio_data_file(data)
+        if data['vibor'] == "no_sogl":
+            replace_words_in_word(["{{ Страховая }}", "{{ ФИО }}", "{{ ДР }}", 
+                                "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                                "{{ Nакта_осмотра }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}",
+                                "{{ Nавто_клиента }}", "{{ Дата_подачи_заявления }}","{{ Организация }}", "{{ Дата_экспертизы }}",
+                                "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Город }}", "{{ Серия_полиса }}", "{{ Номер_полиса }}",
+                                "{{ Дата }}", "{{ ФИОк }}"],
+                                [str(data["insurance"]), str(data["fio"]), str(data["date_of_birth"]),
+                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                    str(data["Na_ins"]),str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
+                                    str(data["marks"]), str(data["car_number"]),str(data["date_insurance"]), str(data["org_exp"]),
+                                    str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]), str(data["city"]),
+                                    str(data["seria_insurance"]), str(data["number_insurance"]),str(data["pret"]), str(data["fio_k"]),],
+                                    "Шаблоны\\1. ДТП\\2. На выплату\\1. заявление на выплату - выплатили\\5. Заявление в страховую об изменении формы страхового возмещения выплатили.docx",
+                                    data["fio"]+"\\Документы\\"+"5. Заявление в страховую об изменении формы страхового возмещения выплатили.docx")
+            data.update({"status": 'Отправлено заявление в страховую'})
+            data.update({"analis_ins": 'Yes'})
+            try:
+                client_id, updated_data = save_client_to_db_with_id(data)
+                data.update(updated_data)
+            except Exception as e:
+                print(f"Ошибка базы данных: {e}")
+            create_fio_data_file(data)
+
+            user_id = message.from_user.id
+            user_temp_data[user_id] = data
+            
+            keyboard = types.InlineKeyboardMarkup()
+
+            btn1 = types.InlineKeyboardButton("Да", callback_data="YesPr_podal_z2")
+            btn2 = types.InlineKeyboardButton("Нет", callback_data="NoPr_podal_z2")
+            keyboard.add(btn1, btn2)
+            bot.send_message(message.chat.id, "Данные сохранены, отправить вам документы?", reply_markup=keyboard)
+        elif data['vibor'] == "ceccia":
+            message = bot.send_message(
+                message.chat.id,
+                text="Введите цену цессии"
+                )
+            user_message_id = message.message_id
+            bot.register_next_step_handler(message, coin_c, data, user_message_id)
+        else:
+            message = bot.send_message(
+                message.chat.id,
+                text="Введите стоимость услуг нотариуса"
+                )
+            user_message_id = message.message_id
+            bot.register_next_step_handler(message, coin_not, data, user_message_id)
         
     else:
         message = bot.send_message(
@@ -1934,10 +2430,32 @@ def coin_c(message, data, user_message_id):
         user_message_id = message.message_id
         bot.register_next_step_handler(message, coin_c, data, user_message_id)
 
+def date_izvesh_dtp(message, data, user_message_id, user_message_id1):
+    if user_message_id1 == user_message_id:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, message.message_id)
+    else:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, user_message_id1)
+        bot.delete_message(message.chat.id, message.message_id)
+    try:
+        datetime.strptime(message.text, "%d.%m.%Y")
+        data.update({"date_izvesh_dtp": message.text})
+        message = bot.send_message(message.chat.id, text="Введите номер выплатного дела".format(message.from_user))
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, N_viplat_work, data, user_message_id, user_message_id)
+    except ValueError:
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату извещения в формате ДД.ММ.ГГГГ".format(message.from_user))
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, date_izvesh_dtp, data, user_message_id, user_message_id)
 def N_viplat_work(message, data, user_message_id, user_message_id1):
-    bot.delete_message(message.chat.id, user_message_id)
-    bot.delete_message(message.chat.id, user_message_id1)
-    bot.delete_message(message.chat.id, message.message_id)
+    if user_message_id1 == user_message_id:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, message.message_id)
+    else:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, user_message_id1)
+        bot.delete_message(message.chat.id, message.message_id)
     data.update({"N_viplat_work": message.text})
     message = bot.send_message(message.chat.id, text="Введите дату выплатного дела в формате ДД.ММ.ГГГГ".format(message.from_user))
     user_message_id = message.message_id
@@ -2014,7 +2532,7 @@ def gos_money(message, data, user_message_id):
         data.update({"Done": "Yes"})
         data.update({"date_isk": str((datetime.now()).strftime("%d.%m.%Y"))})
         data.update({"status": 'Отправлено исковое заявление'})
-        if len(data['fio_culp'])==2:
+        if len(data['fio_culp'].split())==2:
                 fio_culp_k = data['fio_culp'].split()[0]+" "+list(data['fio_culp'].split()[1])[0]+"."
         else:
             fio_culp_k = data['fio_culp'].split()[0]+" "+list(data['fio_culp'].split()[1])[0]+"."+list(data['fio_culp'].split()[2])[0]+"."
@@ -2024,15 +2542,36 @@ def gos_money(message, data, user_message_id):
         except Exception as e:
             print(f"Ошибка базы данных: {e}")
         create_fio_data_file(data)
-        if data['vibor'] == "delict":
-            pass    
+        if data['vibor'] == "delict" or data['vibor'] == 'no_sogl':
+            replace_words_in_word(["{{ Суд }}","{{ ФИО }}","{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                                "{{ Индекс }}", "{{ Адрес }}", "{{ Телефон }}","{{ Представитель }}","{{ NДоверенности }}","{{ Дата_доверенности }}", 
+                                "{{ винФИО }}", "{{ ДР_Виновника }}","{{ Серия_ВУвин }}", "{{ Номер_ВУвин }}", "{{ Дата_ВУвин }}","{{ Индекс_Виновника }}","{{ Адрес_Виновника }}",
+                                "{{ Телефон_Виновника }}",
+                                "{{ Страховая }}","{{ Разница }}","{{ Цена_пошлины }}",
+                                "{{ Дата_ДТП }}","{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}","{{ Nавто_клиента }}", "{{ Марка_модель_виновника }}",
+                                "{{ Nавто_виновник }}", "{{ винФИОкор }}", "{{ Экспертиза }}", "{{ Выплата_ОСАГО }}","{{ Nвыплатного_дела }}","{{ Дата_выплатного_дела }}",
+                                "{{ Nплатежного_поручения }}","{{ Дата_поручения }}", "{{ Год }}", "{{ NКлиента }}","{{ Дата }}", "{{ Стоимость_экспертизы }}", "{{ Дата_экспертизы }}",
+                                "{{ Документ }}", "{{ Док_серия }}","{{ Док_номер }}","{{ Дата_извещения }}","{{ Дата_искового_заявления }}"],
+                                [str(data["sud"]), str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]),
+                                    str(data["number_pasport"]), str(data["where_pasport"]),str(data["when_pasport"]), str(data["index_postal"]),
+                                    str(data["address"]), str(data["number"]), str(data["fio_not"]), str(data["N_dov_not"]),str(data["data_dov_not"]), 
+                                    str(data["fio_culp"]),str(data["date_of_birth_culp"]), str(data["seria_vu_culp"]),
+                                    str(data["number_vu_culp"]), str(data["data_vu_culp"]), str(data["index_culp"]), str(data["address_culp"]),str(data["number_culp"]), 
+                                    str(data["insurance"]), str(float(data["coin_exp"])-float(data['coin_osago'])), 
+                                    str(data["gos_money"]), str(data["date_dtp"]),str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
+                                    str(data["marks_culp"]),str(data["number_auto_culp"]), str(fio_culp_k), str(data["coin_exp"]), str(data["coin_osago"]),str(data["N_viplat_work"]),
+                                    str(data["date_viplat_work"]), str(data["N_plat_por"]), str(data["date_plat_por"]), str(data["year"]), str(data["client_id"]), str(data["pret"]),
+                                    str(data["money_exp"]), str(data["date_exp"]), str(data["docs"]), str(data["seria_docs"]), str(data["number_docs"]),str(data["date_izvesh_dtp"]),
+                                    str(data["date_isk"])],
+                                    "Шаблоны\\1. ДТП\\2. На выплату\\4. Деликт\\Деликт 5.  Исковое заявление.docx",
+                                    data["fio"]+"\\Документы\\"+"Деликт 5.  Исковое заявление.docx")   
         elif data['vibor'] == "ceccia":
             replace_words_in_word(["{{ Суд }}", "{{ ЦФИО }}", "{{ ЦДР }}", 
                                 "{{ Цпаспорт_серия }}", "{{ Цпаспорт_номер }}","{{ Цпаспорт_выдан }}", "{{ Цпаспорт_когда }}",
                                 "{{ ЦИндекс }}", "{{ ЦАдрес }}", "{{ ЦТелефон }}","{{ Представитель }}","{{ NДоверенности }}",
                                 "{{ Дата_доверенности }}", "{{ Телефон_представителя }}","{{ винФИО }}", "{{ ДР_Виновника }}",
                                 "{{ Серия_ВУвин }}", "{{ Номер_ВУвин }}", "{{ Дата_ВУвин }}","{{ Индекс_Виновника }}","{{ Адрес_Виновника }}",
-                                "{{ Адрес }}", "{{ винФИО }}", "{{ ДР_Виновника }}", "{{ Индекс_Виновника }}","{{ Адрес_Виновника }}","{{ Телефон_Виновника }}",
+                                "{{ Телефон_Виновника }}",
                                 "{{ ФИО }}","{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
                                 "{{ Индекс }}", "{{ Адрес }}", "{{ Телефон }}", "{{ Страховая }}","{{ Разница }}","{{ Цена_пошлины }}",
                                 "{{ Дата_ДТП }}","{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}","{{ Nавто_клиента }}", "{{ Марка_модель_виновника }}",
@@ -2050,9 +2589,10 @@ def gos_money(message, data, user_message_id):
                                     str(data["gos_money"]), str(data["date_dtp"]),str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
                                     str(data["marks_culp"]),str(data["number_auto_culp"]), str(fio_culp_k), str(data["coin_exp"]), str(data["coin_osago"]),str(data["N_viplat_work"]),
                                     str(data["date_viplat_work"]), str(data["N_plat_por"]), str(data["date_plat_por"]), str(data["year"]), str(data["client_id"]), str(data["pret"]),
-                                    str(data["coin_exp_izn"]), str(data["coin_c"]), str(data["city"]), str(data["date_isk"])],
+                                    str(data["money_exp"]), str(data["coin_c"]), str(data["city"]), str(data["date_isk"])],
                                     "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 8. Исковое заявление Цессия.docx",
-                                    data["fio"]+"\\"+data["fio"]+"_исковое_заявление.docx")
+                                    data["fio"]+"\\Документы\\"+"Цессия 8. Исковое заявление Цессия.docx")
+    
 
 
         user_id = message.from_user.id
@@ -2072,7 +2612,39 @@ def gos_money(message, data, user_message_id):
         user_message_id = message.message_id
         bot.register_next_step_handler(message, gos_money, data, user_message_id)
 
-
+def Nv_ins(message, data, user_message_id, user_message_id1):
+    if user_message_id1 == user_message_id:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, message.message_id)
+    else:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, user_message_id1)
+        bot.delete_message(message.chat.id, message.message_id)
+    data.update({"Nv_ins": message.text})
+    message = bot.send_message(message.chat.id, text="Введите номер акта осмотра ТС".format(message.from_user))
+    user_message_id = message.message_id
+    bot.register_next_step_handler(message, Na_ins, data, user_message_id)
+def Na_ins(message, data, user_message_id):
+    bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, message.message_id)
+    data.update({"Na_ins": message.text})
+    message = bot.send_message(message.chat.id, text="Введите дату акта осмотра ТС в формате ДД.ММ.ГГГГ.".format(message.from_user))
+    user_message_id = message.message_id
+    bot.register_next_step_handler(message, date_Na_ins, data, user_message_id)
+def date_Na_ins(message, data, user_message_id):
+    bot.delete_message(message.chat.id, user_message_id)
+    bot.delete_message(message.chat.id, message.message_id)
+    try:
+        datetime.strptime(message.text, "%d.%m.%Y")
+        data.update({"date_Na_ins": message.text})
+        
+        message = bot.send_message(message.chat.id, text="Введите дату экспертного заключения в формате ДД.ММ.ГГГГ".format(message.from_user))
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, date_exp, data, user_message_id, user_message_id)
+    except ValueError:
+        message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату акта осмотра ТС в формате ДД.ММ.ГГГГ.".format(message.from_user))
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, date_Na_ins, data, user_message_id)
 
 
 

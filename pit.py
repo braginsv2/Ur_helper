@@ -13,6 +13,7 @@ bot = None
 callback_client_details2_handler = None
 user_temp_data = {}
 
+
 def init_bot(bot_instance, start_handler=None, callback_handler=None):
     """Инициализация бота в модуле"""
     global bot, callback_client_details2_handler
@@ -99,8 +100,8 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
 
         if call.data == "pitdocs1Yes_pit":
             documents = [
-            {"path": data["fio"]+"\\"+data["fio"]+"_обложка.docx", "name": "Обложка дела"},
-            {"path": data["fio"]+"\\"+data["fio"] + "_юр_договор.docx", "name": "Юридический договор"}
+            {"path": data["fio"]+"\\Документы\\"+"Яма 1. Обложка дела.docx", "name": "Обложка дела"},
+            {"path": data["fio"]+"\\Документы\\"+"Яма 2. Юр договор.docx", "name": "Юридический договор"}
             ]
             message= bot.send_message(call.message.chat.id, "Отправляю документы...")
             for doc in documents:
@@ -135,8 +136,8 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
 
         if call.data == "pitIskYes_pit":
             documents = [
-            {"path": data["fio"]+"\\"+data["fio"]+"_анализ_дтп.docx", "name": "Обложка дела"},
-            {"path": data["fio"]+"\\"+data["fio"] + "_иск_к_администрации.docx", "name": "Юридический договор"}
+            {"path": data["fio"]+"\\Документы\\"+"Яма 3.  Анализ ДТП.docx", "name": "Обложка дела"},
+            {"path": data["fio"]+"\\Документы\\" + "Яма 4. Иск к администрации.docx", "name": "Юридический договор"}
             ]
             message= bot.send_message(call.message.chat.id, "Отправляю документы...")
             for doc in documents:
@@ -328,9 +329,13 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             bot.register_next_step_handler(message, fio_not, data, user_message_id)
 
 def FIO(message, data, user_message_id, user_message_id1):
-    bot.delete_message(message.chat.id, user_message_id)
-    bot.delete_message(message.chat.id, user_message_id1)
-    bot.delete_message(message.chat.id, message.message_id)
+    if user_message_id1 == user_message_id:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, message.message_id)
+    else:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, user_message_id1)
+        bot.delete_message(message.chat.id, message.message_id)
 
     if len(message.text.split())<2:
             message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите ФИО клиента в формате Иванов Иван Иванович".format(message.from_user))
@@ -632,7 +637,7 @@ def data_docs(message, data, user_message_id):
                             [str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
                                 str(data["year"]),str(data['client_id']), str(data["fio"]), str(data["number"]), str(data["city"])],
                                 "Шаблоны\\2. Яма\\Яма 1. Обложка дела.docx",
-                                data["fio"]+"\\"+data["fio"]+"_обложка.docx")
+                                data["fio"]+"\\Документы\\"+"Яма 1. Обложка дела.docx")
         
         replace_words_in_word(["{{ Год }}", "{{ NКлиента }}", "{{ Город }}", 
                            "{{ Дата }}", "{{ ФИО }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}",
@@ -643,7 +648,7 @@ def data_docs(message, data, user_message_id):
                             str(data["when_pasport"]), str(data["index_postal"]), str(data["address"]), str(data["date_dtp"]), str(data["time_dtp"]), 
                             str(data["address_dtp"]), str(data["fio_k"])],
                             "Шаблоны\\2. Яма\\Яма 2. Юр договор.docx",
-                             data["fio"]+"\\"+data["fio"]+"_юр_договор.docx")
+                             data["fio"]+"\\Документы\\"+"Яма 2. Юр договор.docx")
         
         user_id = message.from_user.id
         user_temp_data[user_id] = data
@@ -662,9 +667,13 @@ def data_docs(message, data, user_message_id):
 
 
 def coin_exp(message, data, user_message_id, user_message_id1):
-    bot.delete_message(message.chat.id, user_message_id)
-    bot.delete_message(message.chat.id, user_message_id1)
-    bot.delete_message(message.chat.id, message.message_id) 
+    if user_message_id1 == user_message_id:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, message.message_id)
+    else:
+        bot.delete_message(message.chat.id, user_message_id)
+        bot.delete_message(message.chat.id, user_message_id1)
+        bot.delete_message(message.chat.id, message.message_id)
     data.update({"coin_exp": message.text})
     message = bot.send_message(message.chat.id, text="Введите дату экспертизы в формате ДД.ММ.ГГГГ".format(message.from_user))
     user_message_id = message.message_id
@@ -923,7 +932,7 @@ def gos_money(message, data, user_message_id):
                             str(data["year"]),str(data['client_id']), str(data["date_exp"]),str(data["date_sto"]), str(data["coin_exp_izn"]),str(data["coin_exp"]),
                             str(num2words(data["coin_exp"], lang ='ru')),str(data['N_dov_not']), str(data["data_dov_not"]), str(data["fio_not"])],
                             "Шаблоны\\2. Яма\\Яма 3.  Анализ ДТП.docx",
-                            data["fio"]+"\\"+data["fio"]+"_анализ_дтп.docx")
+                            data["fio"]+"\\Документы\\"+"Яма 3.  Анализ ДТП.docx")
     
     replace_words_in_word(["{{ Суд }}", "{{ ФИО }}", "{{ ДР }}", 
                         "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
@@ -948,7 +957,7 @@ def gos_money(message, data, user_message_id):
                         str(data['N_kv_exp']), str(data["N_kv_ur"]), str(data['date_kv_ur']),str(data['coin_not']), str(num2words(data["coin_not"], lang ='ru')),
                         str(data['N_kv_not']), str(data['date_kv_not']), str(data['date_isk'])],
                         "Шаблоны\\2. Яма\\Яма 4. Иск к администрации.docx",
-                            data["fio"]+"\\"+data["fio"]+"_иск_к_администрации.docx")
+                            data["fio"]+"\\Документы\\"+"Яма 4. Иск к администрации.docx")
     
     user_id = message.from_user.id
     user_temp_data[user_id] = data
@@ -985,7 +994,6 @@ def clear_chat_history_optimized(message, count):
                 continue
         except Exception:
             continue
-
 
 
 
