@@ -8,10 +8,58 @@ from word_utils import replace_words_in_word, create_fio_data_file
 from database import DatabaseManager, save_client_to_db_with_id
 from telebot.apihelper import ApiException
 
+
 bot = None
 callback_client_details2_handler = None
 user_temp_data = {}
 
+insurance_companies = [
+    ('АО "Согаз"', "SOGAZ"),
+    ('ПАО СК "Росгосстрах"', "Ros"),
+    ('САО "Ресо-Гарантия"', "Reco"),
+    ('АО "АльфаСтрахование"', "Alfa"),
+    ('СПАО "Ингосстрах"', "Ingo"),
+    ('САО "ВСК"', "VSK"),
+    ('ПАО «САК «Энергогарант»', "Energo"),
+    ('АО "ГСК "Югория"', "Ugo"),
+    ('ООО СК "Согласие"', "Soglasie"),
+    ('АО «Совкомбанк страхование»', "Sovko"),
+    ('АО "Макс"', "Maks"),
+    ('ООО СК "Сбербанк страхование"', "Sber"),
+    ('АО "Т-Страхование"', "T-ins"),
+    ('ПАО "Группа Ренессанс Страхование"', "Ren"),
+    ('АО СК "Чулпан"', "Chul")
+]
+def create_insurance_keyboard(page=0, items_per_page=5):
+    """Создает клавиатуру с пагинацией для страховых компаний"""
+    keyboard = types.InlineKeyboardMarkup()
+    
+    # Вычисляем начальный и конечный индексы для текущей страницы
+    start_idx = page * items_per_page
+    end_idx = start_idx + items_per_page
+    
+    # Добавляем кнопки для текущей страницы
+    for name, callback_data in insurance_companies[start_idx:end_idx]:
+        keyboard.add(types.InlineKeyboardButton(name, callback_data=callback_data))
+    
+    # Добавляем кнопки навигации
+    row_buttons = []
+    
+    # Кнопка "Назад" если это не первая страница
+    if page > 0:
+        row_buttons.append(types.InlineKeyboardButton('◀️ Назад', callback_data=f'ins_page_{page-1}'))
+    
+    # Кнопка "Еще" если есть следующая страница
+    if end_idx < len(insurance_companies):
+        row_buttons.append(types.InlineKeyboardButton('Еще ▶️', callback_data=f'ins_page_{page+1}'))
+    
+    if row_buttons:
+        keyboard.row(*row_buttons)
+    
+    # Всегда добавляем кнопку "Другое" в конце
+    keyboard.add(types.InlineKeyboardButton('Другое', callback_data="other"))
+    
+    return keyboard
 
 def init_bot(bot_instance, start_handler=None, callback_handler=None):
     """Инициализация бота в модуле"""
@@ -47,7 +95,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             return
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
-         
+        data.update({"answer_ins": ""}) 
 
         data.update({"sobstvenik": "Yes" if call.data == "btn_dtp_own" else "No"})
         user_temp_data[user_id] = data
@@ -111,9 +159,13 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text="""Подготовьте документы:
-            1. Паспорт
-            2. Сведения об участниках ДТП
-            """,
+                1. Паспорт
+                2. Данные авто
+                3. Документ о регистрации ТС
+                4. Сведения об участниках ДТП
+                5. Страховой полис
+                6. Банковские реквизиты
+                """,
             reply_markup=None
         )
         user_message_id = message.message_id 
@@ -241,99 +293,62 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             user_message_id = message.message_id 
             bot.register_next_step_handler(message, data_docs, data, user_message_id)
     
-    @bot.callback_query_handler(func=lambda call: call.data in ["Reco", "Ugo", "SOGAZ", "Ingo", "Ros", "Maks", "Energo", "Sovko", "other"])
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('ins_page_'))
+    def handle_insurance_pagination(call):
+        """Обрабатывает пагинацию страховых компаний"""
+        try:
+            page = int(call.data.split('_')[2])
+            keyboard = create_insurance_keyboard(page)
+            
+            bot.edit_message_reply_markup(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=keyboard
+            )
+        except Exception as e:
+            print(f"Error handling pagination: {e}")
+
+    @bot.callback_query_handler(func=lambda call: call.data in ["Reco", "Ugo", "SOGAZ", "Ingo", "Ros", "Maks", "Energo", "Sovko", "Alfa", "VSK", "Soglasie", "Sber", "T-ins", "Ren", "Chul", "other"])
     def callback_insurance(call):
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
-        user_message_id=[] 
-          
-        if call.data == "SOGAZ":
-            data.update({"insurance": 'АО "Согаз"'})
+        user_message_id = [] 
+        
+        # Обработка выбора страховой компании
+        insurance_mapping = {
+            "SOGAZ": 'АО "Согаз"',
+            "Ros": 'ПАО СК "Росгосстрах"',
+            "Reco": 'САО "Ресо-Гарантия"',
+            "Alfa": 'АО "АльфаСтрахование"',
+            "Ingo": 'СПАО "Ингосстрах"',
+            "VSK": 'САО "ВСК"',
+            "Energo": 'ПАО «САК «Энергогарант»',
+            "Ugo": 'АО "ГСК "Югория"',
+            "Soglasie": 'ООО СК "Согласие"',
+            "Sovko": 'АО «Совкомбанк страхование»',
+            "Maks": 'АО "Макс"',
+            "Sber": 'ООО СК "Сбербанк страхование"',
+            "T-ins": 'АО "Т-Страхование"',
+            "Ren": 'ПАО "Группа Ренессанс Страхование"',
+            "Chul": 'АО СК "Чулпан"'
+        }
+        
+        if call.data in insurance_mapping:
+            data.update({"insurance": insurance_mapping[call.data]})
             message = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Введите серию страхового полиса",
-            reply_markup=None
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите серию страхового полиса",
+                reply_markup=None
             )
-            user_message_id = message.message_id 
-  
-            bot.register_next_step_handler(message, seria_insurance, data, user_message_id)
-        elif call.data == "Reco":
-            data.update({"insurance": 'САО "Ресо-Гарантия"'})
-            message = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Введите серию страхового полиса",
-            reply_markup=None
-            ) 
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, seria_insurance, data, user_message_id)
-        elif call.data == "Ugo":
-            data.update({"insurance": 'АО "ГСК "Югория"'})
-            message = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Введите серию страхового полиса",
-            reply_markup=None
-            )
-            user_message_id = message.message_id 
-            bot.register_next_step_handler(message, seria_insurance, data, user_message_id)
-        elif call.data == "Ingo":
-            data.update({"insurance": 'СПАО "Ингосстрах"'})
-            message = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Введите серию страхового полиса",
-            reply_markup=None
-            ) 
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, seria_insurance, data, user_message_id)
-        elif call.data == "Ros":
-            data.update({"insurance": 'ПАО СК "Росгосстрах"'})
-            message = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Введите серию страхового полиса",
-            reply_markup=None
-            ) 
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, seria_insurance, data, user_message_id)
-        elif call.data == "Maks":
-            data.update({"insurance": 'АО "Макс"'})
-            message = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Введите серию страхового полиса",
-            reply_markup=None
-            ) 
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, seria_insurance, data, user_message_id)
-        elif call.data == "Energo":
-            data.update({"insurance": 'ПАО «САК «Энергогарант»'})
-            message = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Введите серию страхового полиса",
-            reply_markup=None
-            ) 
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, seria_insurance, data, user_message_id)
-        elif call.data == "Sovko":
-            data.update({"insurance": 'АО «Совкомбанк страхование»'})
-            message = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Введите серию страхового полиса",
-            reply_markup=None
-            ) 
             user_message_id = message.message_id
             bot.register_next_step_handler(message, seria_insurance, data, user_message_id)
         else: 
             message = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Введите название страховой компании",
-            reply_markup=None
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите название страховой компании",
+                reply_markup=None
             )
             user_message_id = message.message_id
             bot.register_next_step_handler(message, other_insurance, data, user_message_id) 
@@ -421,7 +436,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
         user_id = call.message.from_user.id
         
         data = user_temp_data[user_id]
-         
+        
           
         if call.data == "not_rogalev":
             data.update({"fio_not": 'Рогалев Семен Иннокентьевич'})
@@ -429,7 +444,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
                 data.update({"analis_ins": "Yes"})
                 data.update({"pret_sto": "No"})
                 data.update({"pret": "No"})
-                data.update({"ombuc": "No"})
+                data.update({"ombuc": "req"})
                 data.update({"status": 'Отправлен запрос в страховую'})
                 try:
                     client_id, updated_data = save_client_to_db_with_id(data)
@@ -1004,7 +1019,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
 
         btn1 = types.InlineKeyboardButton("Да", callback_data="YES")
         btn2 = types.InlineKeyboardButton("Нет", callback_data="NO")
-        btn3 = types.InlineKeyboardButton("Нет ОСАГО", callback_data="NOOSAGO")
+        btn3 = types.InlineKeyboardButton("Нет ОСАГО у виновника", callback_data="NOOSAGO")
         btn4 = types.InlineKeyboardButton("Назад", callback_data="dopOsm")
         keyboard.add(btn1)
         keyboard.add(btn2)
@@ -1102,7 +1117,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
             data.update({"analis_ins": "Yes"})
             data.update({"pret_sto": "No"})
             data.update({"pret": "No"})
-            data.update({"ombuc": "No"})
+            data.update({"ombuc": "req"})
             data.update({"status": 'Отправлен запрос в страховую'})
             try:
                 client_id, updated_data = save_client_to_db_with_id(data)
@@ -1375,28 +1390,59 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
         )
         callback_client_details2_handler(call.message, data['client_id'])
     @bot.callback_query_handler(func=lambda call: call.data == "NOO")
-    def callback_ombuc_viboryes(call):
+    def callback_ombuc_exp(call):
         """Продолжение заполнения данных клиента"""
          
         user_id = call.message.from_user.id
         data = user_temp_data[user_id]
          
           
-        user_message_id = []
+        keyboard = types.InlineKeyboardMarkup()
+
+        btn1 = types.InlineKeyboardButton("Да", callback_data="NOO_Yes")
+        btn2 = types.InlineKeyboardButton("Нет", callback_data="NOO_No")
+        keyboard.add(btn1)
+        keyboard.add(btn2)
         message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                text="Подготовьте документы:\n1. Принятое заявление омбуцмену\n2. Ответ омбуцмена\n3. Независимую техническую экспертизу",
-                reply_markup=None
+                text="Заказать независимую экспертизу?",
+                reply_markup=keyboard
                 )
-        user_message_id1 = message.message_id
-        message = bot.send_message(
-            call.message.chat.id, 
-            "Введите серию ВУ виновника", 
-            reply_markup=None
-        )
-        user_message_id = message.message_id
-        bot.register_next_step_handler(message, seria_vu_culp, data, user_message_id, user_message_id1)
+
+    @bot.callback_query_handler(func=lambda call: call.data in ["NOO_Yes", "NOO_No"])
+    def callback_ombuc_viboryes(call):
+        """Продолжение заполнения данных клиента"""
+         
+        user_id = call.message.from_user.id
+        data = user_temp_data[user_id]
+        if call.data ==  "NOO_Yes":
+            data['ombuc'] == 'Yes'
+            bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text=f"Запрос о независимой экспертизе на авто по делу {data['client_id']}",
+                    reply_markup=None
+                    ) 
+            time.sleep(1)
+            clear_chat_history_optimized(call.message, 1)
+            callback_client_details2_handler(call.message, data['client_id'])
+        else:
+            data['ombuc'] == 'No'     
+            message = bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text="Подготовьте документы:\n1. Принятое заявление омбуцмену\n2. Ответ омбуцмена\n3. Независимую техническую экспертизу",
+                    reply_markup=None
+                    )
+            user_message_id1 = message.message_id
+            message = bot.send_message(
+                call.message.chat.id, 
+                "Введите серию ВУ виновника", 
+                reply_markup=None
+            )
+            user_message_id = message.message_id
+            bot.register_next_step_handler(message, seria_vu_culp, data, user_message_id, user_message_id1)
     @bot.callback_query_handler(func=lambda call: call.data == "Ura")
     def callback_ura(call):
         """Продолжение заполнения данных клиента"""
@@ -1994,40 +2040,31 @@ def number_docs(message, data, user_message_id):
 def data_docs(message, data, user_message_id):
     bot.delete_message(message.chat.id, user_message_id)
     bot.delete_message(message.chat.id, message.message_id)
+    
     try:
         datetime.strptime(message.text, "%d.%m.%Y")
         data.update({"data_docs": message.text})
-         
-             
-        user_message_id=[]
+        
         user_id = message.from_user.id
         user_temp_data[user_id] = data
-         
-        keyboard = types.InlineKeyboardMarkup()
-
-        btn1 = types.InlineKeyboardButton('САО "Ресо-Гарантия"', callback_data="Reco")
-        btn2 = types.InlineKeyboardButton('АО "ГСК "Югория"', callback_data="Ugo")
-        btn3 = types.InlineKeyboardButton('АО "Согаз"', callback_data="SOGAZ")
-        btn4 = types.InlineKeyboardButton('СПАО "Ингосстрах"', callback_data="Ingo")
-        btn5 = types.InlineKeyboardButton('ПАО СК "Росгосстрах"', callback_data="Ros")
-        btn6 = types.InlineKeyboardButton('АО "Макс"', callback_data="Maks")
-        btn7 = types.InlineKeyboardButton('ПАО «САК «Энергогарант»', callback_data="Energo")
-        btn8 = types.InlineKeyboardButton('АО «Совкомбанк страхование»', callback_data="Sovko")
-        btn9 = types.InlineKeyboardButton('Другое', callback_data="other")
-        keyboard.add(btn1)
-        keyboard.add(btn2)
-        keyboard.add(btn3)
-        keyboard.add(btn4)
-        keyboard.add(btn5)
-        keyboard.add(btn6)
-        keyboard.add(btn7)
-        keyboard.add(btn8)
-        keyboard.add(btn9)
-        bot.send_message(message.chat.id, text="Выберите страховую компанию".format(message.from_user), reply_markup=keyboard)
+        
+        # Создаем клавиатуру с пагинацией (первая страница)
+        keyboard = create_insurance_keyboard(page=0)
+        
+        bot.send_message(
+            message.chat.id, 
+            text="Выберите страховую компанию".format(message.from_user), 
+            reply_markup=keyboard
+        )
+        
     except ValueError:
-        message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату выдачи документа о регистрации ТС в формате ДД.ММ.ГГГГ".format(message.from_user))
+        message = bot.send_message(
+            message.chat.id, 
+            text="Неправильный формат ввода!\nВведите дату выдачи документа о регистрации ТС в формате ДД.ММ.ГГГГ".format(message.from_user)
+        )
         user_message_id = message.message_id
         bot.register_next_step_handler(message, data_docs, data, user_message_id)
+
 def other_insurance(message, data, user_message_id):
     bot.delete_message(message.chat.id, user_message_id)
     bot.delete_message(message.chat.id, message.message_id)
@@ -2501,7 +2538,7 @@ def coin_osago(message, data, user_message_id):
                     data.update({"analis_ins": "Yes"})
                     data.update({"pret_sto": "No"})
                     data.update({"pret": "No"})
-                    data.update({"ombuc": "No"})
+                    data.update({"ombuc": "req"})
                     data.update({"status": 'Отправлен запрос в страховую'})
                     try:
                         client_id, updated_data = save_client_to_db_with_id(data)
@@ -2736,7 +2773,7 @@ def fio_not(message, data, user_message_id):
             data.update({"analis_ins": "Yes"})
             data.update({"pret_sto": "No"})
             data.update({"pret": "No"})
-            data.update({"ombuc": "No"})
+            data.update({"ombuc": "req"})
             data.update({"status": 'Отправлен запрос в страховую'})
             try:
                 client_id, updated_data = save_client_to_db_with_id(data)
@@ -3201,7 +3238,7 @@ def date_izvesh_dtp(message, data, user_message_id):
     try:
         datetime.strptime(message.text, "%d.%m.%Y")   
         data.update({"date_izvesh_dtp": message.text})
-        data.update({"ombuc": "Yes"})
+        data.update({"ombuc": "req"})
         data.update({"date_isk": str(datetime.now().strftime("%d.%m.%Y"))})
         data.update({"Done": "Yes"})
         data.update({"status": 'Отправлено исковое заявление'})
@@ -3561,5 +3598,4 @@ def clear_chat_history_optimized(message, count):
                 time.sleep(0.3)  # Короткая пауза при превышении лимитов
                 continue
         except Exception:
-
             continue
