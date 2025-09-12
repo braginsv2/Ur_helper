@@ -357,11 +357,11 @@ def edit_files(files, data):
         elif "2. Юр договор.docx" == i:
             try:
                 replace_words_in_word(["{{ Год }}", "{{ NКлиента }}", "{{ Город }}", 
-                            "{{ Дата }}", "{{ ФИО }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}",
+                            "{{ Дата }}", "{{ ФИО }}","{{ ДР }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}",
                             "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}", "{{ Индекс }}","{{ Адрес }}","{{ Дата_ДТП }}",
                             "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ ФИОк }}"],
                             [str(data['year']), str(data['client_id']), str(data["city"]), str(datetime.now().strftime("%d.%m.%Y")),
-                                str(data["fio"]), str(data["seria_pasport"]),str(data["number_pasport"]), str(data["where_pasport"]),
+                                str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]),str(data["number_pasport"]), str(data["where_pasport"]),
                                 str(data["when_pasport"]), str(data["index_postal"]), str(data["address"]), str(data["date_dtp"]), str(data["time_dtp"]), 
                                 str(data["address_dtp"]), str(data["fio_k"])],
                                 "Шаблоны\\1. ДТП\\1. На ремонт\\2. Юр договор.docx",
@@ -634,6 +634,25 @@ def edit_files(files, data):
                 print(e)
                 print(i)
                 print("5. Запрос в страховую о выдаче акта и расчёта.docx")
+        elif "5. Запрос в страховую о выдаче акта и расчёта представитель.docx" == i:
+            try:
+                replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
+                            "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                            "{{ NДоверенности }}","{{ Дата_доверенности }}", "{{ Представитель }}","{{ Телефон_представителя }}",
+                            "{{ Дата_ДТП }}","{{ Время_ДТП }}", "{{ Адрес_ДТП }}","{{ Марка_модель }}","{{ Nавто_клиента }}",
+                            "{{ Марка_модель_виновника }}", "{{ Nавто_виновник }}", "{{ Телефон }}"],
+                            [str(data['insurance']), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]),
+                            str(data["number_pasport"]), str(data["where_pasport"]),
+                            str(data["when_pasport"]),str(data["N_dov_not"]), str(data["data_dov_not"]),str(data["fio_not"]),str(data["number_not"]),
+                            str(data["date_dtp"]), str(data["time_dtp"]), 
+                            str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), 
+                            str(data["marks_culp"]), str(data["number_auto_culp"]), str(data["number"])],
+                            "Шаблоны\\1. ДТП\\1. На ремонт\\5. Запрос в страховую о выдаче акта и расчета\\5. Запрос в страховую о выдаче акта и расчёта представитель.docx",
+                                data["fio"]+"\\Документы\\"+"5. Запрос в страховую о выдаче акта и расчёта представитель.docx")
+            except Exception as e:
+                print(e)
+                print(i)
+                print("5. Запрос в страховую о выдаче акта и расчёта представитель.docx")
         elif "7. Заявление фин. омбудсмену при выплате без согласования.docx" == i:
             try:
                 replace_words_in_word(["{{ Дата_обуцмен }}", "{{ Страховая }}","{{ Город }}", "{{ ФИО }}", 
@@ -769,15 +788,15 @@ def edit_files(files, data):
                                     data["fio"]+"\\Документы\\"+"Яма 1. Обложка дела.docx")
         elif "Яма 2. Юр договор.docx" == i:
             replace_words_in_word(["{{ Год }}", "{{ NКлиента }}", "{{ Город }}", 
-                            "{{ Дата }}", "{{ ФИО }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}",
+                            "{{ Дата }}", "{{ ФИО }}","{{ ДР }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}",
                             "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}", "{{ Индекс }}","{{ Адрес }}","{{ Дата_ДТП }}",
                             "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ ФИОк }}"],
-                            [str(datetime.now().year), str(data['client_id']), "Томск", str(datetime.now().strftime("%d.%m.%Y")),
-                                str(data["fio"]), str(data["seria_pasport"]),str(data["number_pasport"]), str(data["where_pasport"]),
+                            [str(data['year']), str(data['client_id']), str(data["city"]), str(datetime.now().strftime("%d.%m.%Y")),
+                                str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]),str(data["number_pasport"]), str(data["where_pasport"]),
                                 str(data["when_pasport"]), str(data["index_postal"]), str(data["address"]), str(data["date_dtp"]), str(data["time_dtp"]), 
                                 str(data["address_dtp"]), str(data["fio_k"])],
-                                "Шаблоны\\2. Яма\\Яма 2. Юр договор.docx",
-                                data["fio"]+"\\Документы\\"+"Яма 2. Юр договор.docx")
+                                "Шаблоны\\1. ДТП\\1. На ремонт\\2. Юр договор.docx",
+                                data["fio"]+"\\Документы\\"+"2. Юр договор.docx")
         elif "Яма 3.  Анализ ДТП.docx" == i:
             replace_words_in_word(["{{ Дата_ДТП }}", "{{ Марка_модель }}", "{{ Год_авто }}", 
                             "{{ Nавто_клиента }}", "{{ ФИО }}", "{{ Адрес_ДТП }}","{{ Город }}", "{{ ФИОк }}",
@@ -832,15 +851,15 @@ def edit_files(files, data):
                 print("Деликт (без ОСАГО) 1. Обложка дела.docx")
         elif "Деликт (без ОСАГО) 2. Юр договор.docx" == i:
             replace_words_in_word(["{{ Год }}", "{{ NКлиента }}", "{{ Город }}", 
-                            "{{ Дата }}", "{{ ФИО }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}",
+                            "{{ Дата }}", "{{ ФИО }}","{{ ДР }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}",
                             "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}", "{{ Индекс }}","{{ Адрес }}","{{ Дата_ДТП }}",
                             "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ ФИОк }}"],
-                            [str(datetime.now().year), str(data['client_id']), str(data['city']), str(datetime.now().strftime("%d.%m.%Y")),
-                                str(data["fio"]), str(data["seria_pasport"]),str(data["number_pasport"]), str(data["where_pasport"]),
+                            [str(data['year']), str(data['client_id']), str(data["city"]), str(datetime.now().strftime("%d.%m.%Y")),
+                                str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]),str(data["number_pasport"]), str(data["where_pasport"]),
                                 str(data["when_pasport"]), str(data["index_postal"]), str(data["address"]), str(data["date_dtp"]), str(data["time_dtp"]), 
                                 str(data["address_dtp"]), str(data["fio_k"])],
-                                "Шаблоны\\3. Деликт без ОСАГО\\Деликт (без ОСАГО) 2. Юр договор.docx",
-                                data["fio"]+"\\Документы\\"+"Деликт (без ОСАГО) 2. Юр договор.docx")
+                                "Шаблоны\\1. ДТП\\1. На ремонт\\2. Юр договор.docx",
+                                data["fio"]+"\\Документы\\"+"2. Юр договор.docx")
         elif "Цессия 5. Соглашение о замене стороны Цессия.docx" == i:
             replace_words_in_word(["{{ Год }}", "{{ NКлиента }}", "{{ Дата }}", 
                                         "{{ Город }}", "{{ ЦФИО }}","{{ ЦДР }}", "{{ ЦМесто }}",
@@ -945,21 +964,21 @@ def edit_files(files, data):
                                         data["fio"]+"\\Документы\\"+"5. Заявление в страховую об изменении формы страхового возмещения выплатили.docx")
         elif "7. Заявление фин. омбуцмену изменение способа возмещения.docx" == i:
             replace_words_in_word(["{{ Дата_обуцмен }}","{{ Страховая }}", "{{ Город }}","{{ ФИО }}", "{{ ДР }}", "{{ Место }}",
-                                    "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
-                                    "{{ Адрес }}", "{{ Телефон }}","{{ Серия_полиса }}", "{{ Номер_полиса }}", "{{ Дата_полиса }}",
-                                    "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}",
-                                    "{{ Nавто_клиента }}","{{ Дата }}", "{{ Nв_страховую }}","{{ Организация }}", "{{ Nэкспертизы }}", "{{ Дата_экспертизы }}",
-                                    "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата_заявления_изменения }}", "{{ Номер_заявления_изменения }}", "{{ ФИОк }}",
-                                    "{{ Дата_претензии }}", "{{ Выплата_ОСАГО }}"],
-                                    [str(data["date_ombuc"]), str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                        str(data["city_birth"]), str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                        str(data["address"]), str(data["number"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
-                                        str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
-                                        str(data["marks"]), str(data["car_number"]), str(data["date_ins_pod"]), str(data["Nv_ins"]),str(data["org_exp"]),str(data["Na_ins"]),
-                                        str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]), str(data["date_pret"]),
-                                        str(data["Nv_ins"]), str(data["fio_k"]),str(data["date_pret"]), str(data["coin_osago"])],
-                                        "Шаблоны\\1. ДТП\\2. На выплату\\1. заявление на выплату - выплатили\\7. Заявление фин. омбуцмену изменение способа возмещения.docx",
-                                        data["fio"]+"\\Документы\\"+"7. Заявление фин. омбуцмену изменение способа возмещения.docx")
+                                "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                                "{{ Адрес }}", "{{ Телефон }}","{{ Серия_полиса }}", "{{ Номер_полиса }}", "{{ Дата_полиса }}",
+                                "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}",
+                                "{{ Nавто_клиента }}","{{ Дата }}", "{{ Nв_страховую }}","{{ Организация }}", "{{ Nэкспертизы }}", "{{ Дата_экспертизы }}",
+                                "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата_заявления_изменения }}", "{{ Номер_заявления_изменения }}", "{{ ФИОк }}",
+                                "{{ Дата_претензии }}", "{{ Выплата_ОСАГО }}"],
+                                [str(data["date_ombuc"]), str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
+                                    str(data["city_birth"]), str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                    str(data["address"]), str(data["number"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
+                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
+                                    str(data["marks"]), str(data["car_number"]), str(data["date_ins_pod"]), str(data["Nv_ins"]),str(data["org_exp"]),str(data["Na_ins"]),
+                                    str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]), str(data["date_pret"]),
+                                    str(data["Nv_ins"]), str(data["fio_k"]),str(data["date_pret"]), str(data["coin_osago"])],
+                                    "Шаблоны\\1. ДТП\\2. На выплату\\1. заявление на выплату - выплатили\\7. Заявление фин. омбуцмену изменение способа возмещения.docx",
+                                    data["fio"]+"\\Документы\\"+"7. Заявление фин. омбуцмену изменение способа возмещения.docx")
         elif "Цессия 8. Исковое заявление Цессия.docx" == i:
             if len(data['fio_culp'].split())==2:
                     fio_culp_k = data['fio_culp'].split()[0]+" "+list(data['fio_culp'].split()[1])[0]+"."
@@ -1003,18 +1022,47 @@ def edit_files(files, data):
                                 str(data["seria_docs"]), str(data["number_docs"]), str(data["city"]), str(data["date_ins"]), str(data["fio_k"])],
                                 "Шаблоны\\1. ДТП\\2. На выплату\\2. заявление на выплату - не выплатили\\3. Заявление в страховую об изменении формы страхового возмещения не выплатили.docx",
                                 data["fio"]+"\\Документы\\"+"3. Заявление в страховую об изменении формы страхового возмещения не выплатили.docx")
-        elif "Цессия 3. Заявление о выдаче копии справки участников ДТП.docx" == i:
+        elif "3. Заявление в страховую об изменении формы страхового возмещения не выплатили представитель.docx" == i:
+            replace_words_in_word(["{{ Страховая }}", "{{ ФИО }}", "{{ ДР }}", 
+                            "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                            "{{ NДоверенности }}", "{{ Дата_доверенности }}","{{ Представитель }}", "{{ Телефон_представителя }}",
+                            "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}","{{ Марка_модель }}","{{ Nавто_клиента }}",
+                            "{{ Дата_подачи_заявления }}", "{{ Серия_полиса }}", "{{ Номер_полиса }}", "{{ Город }}", "{{ Дата_заявления_изменения }}", 
+                            "{{ ФИОк }}"],
+                            [str(data["insurance"]), str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]),
+                                str(data["number_pasport"]), str(data["where_pasport"]),str(data["when_pasport"]),
+                                str(data["N_dov_not"]), str(data["data_dov_not"]),str(data["fio_not"]), str(data["number_not"]), str(data["date_dtp"]),
+                                str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),str(data["date_ins_pod"]), 
+                                str(data["seria_docs"]), str(data["number_docs"]), str(data["city"]), str(data["date_ins"]), str(data["fio_k"])],
+                                "Шаблоны\\1. ДТП\\2. На выплату\\2. заявление на выплату - не выплатили\\3. Заявление в страховую об изменении формы страхового возмещения не выплатили представитель.docx",
+                                data["fio"]+"\\Документы\\"+"3. Заявление в страховую об изменении формы страхового возмещения не выплатили представитель.docx")
+        elif "4. Заявление о выдаче копии справки участников ДТП.docx" == i:
             replace_words_in_word(["{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}", 
-                                        "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}","{{ Паспорт_когда }}", "{{ Дата_ДТП }}",
-                                        "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}","{{ Nавто_клиента }}","{{ Марка_модель_виновника }}",
-                                        "{{ Nавто_виновник }}", "{{ Телефон }}", "{{ ФИОк }}"],
-                                        [str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]), str(data["number_pasport"]),
-                                            str(data["where_pasport"]), str(data["when_pasport"]),str(data["date_dtp"]), str(data["time_dtp"]),
-                                            str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
-                                            str(data["number"]), str(data["fio_k"])],
-                                            "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 3. Заявление о выдаче копии справки участников ДТП.docx",
-                                            data["fio"]+"\\Документы\\"+"Цессия 3. Заявление о выдаче копии справки участников ДТП.docx")
-        elif "Цессия 4. Запрос в страховую о выдаче акта и расчёта.docx" == i:
+                                            "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}","{{ Паспорт_когда }}", "{{ Дата_ДТП }}",
+                                            "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}","{{ Nавто_клиента }}","{{ Марка_модель_виновника }}",
+                                            "{{ Nавто_виновник }}", "{{ Телефон }}", "{{ ФИОк }}"],
+                                            [str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                                                str(data["where_pasport"]), str(data["when_pasport"]),str(data["date_dtp"]), str(data["time_dtp"]),
+                                                str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
+                                                str(data["number"]), str(data["fio_k"])],
+                                                "Шаблоны\\1. ДТП\\2. На выплату\\1. заявление на выплату - выплатили\\4. Заявление в ГИБДД\\4. Заявление о выдаче копии справки участников ДТП.docx",
+                                                data["fio"]+"\\Документы\\"+"4. Заявление о выдаче копии справки участников ДТП.docx")
+        elif "4. Заявление о выдаче копии справки участников ДТП представитель.docx" == i:
+            replace_words_in_word(["{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}", 
+                                            "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}","{{ Паспорт_когда }}",
+                                            "{{ NДоверенности }}", "{{ Дата_доверенности }}","{{ Представитель }}","{{ Телефон_представителя }}",
+                                            "{{ Дата_ДТП }}",
+                                            "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}","{{ Nавто_клиента }}","{{ Марка_модель_виновника }}",
+                                            "{{ Nавто_виновник }}", "{{ Телефон }}", "{{ ФИОк }}"],
+                                            [str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                                                str(data["where_pasport"]), str(data["when_pasport"]),
+                                                str(data["N_dov_not"]), str(data["data_dov_not"]),str(data["fio_not"]), str(data["number_not"]),
+                                                str(data["date_dtp"]), str(data["time_dtp"]),
+                                                str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
+                                                str(data["number"]), str(data["fio_k"])],
+                                                "Шаблоны\\1. ДТП\\2. На выплату\\1. заявление на выплату - выплатили\\4. Заявление в ГИБДД\\4. Заявление о выдаче копии справки участников ДТП представитель.docx",
+                                                data["fio"]+"\\Документы\\"+"4. Заявление о выдаче копии справки участников ДТП представитель.docx")
+        elif "3. Запрос в страховую о выдаче акта и расчёта.docx" == i:
             replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}",
                                         "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}","{{ Паспорт_когда }}", "{{ Дата_ДТП }}",
                                         "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}","{{ Nавто_клиента }}","{{ Марка_модель_виновника }}",
@@ -1023,6 +1071,21 @@ def edit_files(files, data):
                                             str(data["where_pasport"]), str(data["when_pasport"]),str(data["date_dtp"]), str(data["time_dtp"]),
                                             str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
                                             str(data["number"]), str(data["fio_k"])],
-                                            "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 4. Запрос в страховую о выдаче акта и расчёта.docx",
-                                            data["fio"]+"\\Документы\\"+"Цессия 4. Запрос в страховую о выдаче акта и расчёта.docx")
+                                            "Шаблоны\\1. ДТП\\2. На выплату\\1. заявление на выплату - выплатили\\3. заявление в страховую о выдаче документов\\3. Запрос в страховую о выдаче акта и расчёта.docx",
+                                            data["fio"]+"\\Документы\\"+"3. Запрос в страховую о выдаче акта и расчёта.docx")
+        elif "3. Запрос в страховую о выдаче акта и расчёта представитель.docx" == i:
+            replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}",
+                                        "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}","{{ Паспорт_когда }}", 
+                                        "{{ NДоверенности }}", "{{ Дата_доверенности }}","{{ Представитель }}","{{ Телефон_представителя }}",
+                                        "{{ Дата_ДТП }}",
+                                        "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}","{{ Nавто_клиента }}","{{ Марка_модель_виновника }}",
+                                        "{{ Nавто_виновник }}", "{{ Телефон }}"],
+                                        [str(data["insurance"]),str(data["city"]),str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                                            str(data["where_pasport"]), str(data["when_pasport"]),
+                                            str(data["N_dov_not"]), str(data["data_dov_not"]),str(data["fio_not"]), str(data["number_not"]),
+                                            str(data["date_dtp"]), str(data["time_dtp"]),
+                                            str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),str(data["number_auto_culp"]), 
+                                            str(data["number"])],
+                                            "Шаблоны\\1. ДТП\\2. На выплату\\1. заявление на выплату - выплатили\\3. заявление в страховую о выдаче документов\\3. Запрос в страховую о выдаче акта и расчёта представитель.docx",
+                                            data["fio"]+"\\Документы\\"+"3. Запрос в страховую о выдаче акта и расчёта представитель.docx")
 

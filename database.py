@@ -3,7 +3,6 @@ import json
 from datetime import datetime
 import os
 
-
 class DatabaseManager:
     def __init__(self, db_path="clients.db"):
         """Инициализация базы данных"""
@@ -142,7 +141,8 @@ class DatabaseManager:
             coin_c TEXT,
             city_birth_с TEXT,
             index_postal_c TEXT,
-            number_c TEXT
+            number_c TEXT,
+            money_exp TEXT
                      
         )
         ''')
@@ -340,6 +340,7 @@ class DatabaseManager:
                 'city_birth_с': merged_data.get('city_birth_с', ''),
                 'index_postal_c':merged_data.get('index_postal_c', ''),
                 'number_c':merged_data.get('number_c', ''),
+                'money_exp':merged_data.get('money_exp', ''),
             }
             
             # SQL запрос для обновления
@@ -361,7 +362,7 @@ class DatabaseManager:
                 date_izvesh_dtp=?, date_isk=?, dop_osm=?, ev=?, fio_k=?, data_dop_osm=?, viborRem=?,date_zayav_sto=?, pret_sto=?,data_otkaz_sto=?,date_napr_sto=?,
                 address_sto_main=?,data_sto_main=?, time_sto_main=?, city_sto=?, Done=?, city=?, year=?, street=?, N_gui=?, date_gui=?, N_prot=?, date_prot=?,
                 date_road=?, N_kv_not=?, date_kv_not=?, N_kv_ur=?, date_kv_ur=?,N_kv_exp=?, status=?, fio_c=?, fio_c_k=?, seria_pasport_c=?,number_pasport_c=?,
-                where_pasport_c=?, when_pasport_c=?, address_c=?, date_of_birth_c=?, coin_c=?, city_birth_с=?, index_postal_c=?, number_c=?
+                where_pasport_c=?, when_pasport_c=?, address_c=?, date_of_birth_c=?, coin_c=?, city_birth_с=?, index_postal_c=?, number_c=?, money_exp=?
             WHERE client_id=?
             '''
             
@@ -520,6 +521,7 @@ class DatabaseManager:
                 'city_birth_с': data.get('city_birth_с', ''),
                 'index_postal_c': data.get('index_postal_c', ''),
                 'number_c': data.get('number_c', ''),
+                'money_exp': data.get('money_exp', ''),
             }
             
             # SQL запрос для вставки
@@ -541,8 +543,8 @@ class DatabaseManager:
                 date_izvesh_dtp , date_isk,dop_osm, ev, fio_k,data_dop_osm, viborRem,date_zayav_sto,pret_sto, data_otkaz_sto,date_napr_sto,
                 address_sto_main,data_sto_main,time_sto_main, city_sto, Done, city,year, street, N_gui, date_gui, N_prot,date_prot, date_road,
                 N_kv_not, date_kv_not, N_kv_ur, date_kv_ur,N_kv_exp, status,fio_c,fio_c_k, seria_pasport_c,number_pasport_c,where_pasport_c,when_pasport_c, 
-                address_c, date_of_birth_c,coin_c, city_birth_с, index_postal_c, number_c    
-            ) VALUES (?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?, ?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?, ?, ?, ?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                address_c, date_of_birth_c,coin_c, city_birth_с, index_postal_c, number_c, money_exp    
+            ) VALUES (?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?, ?, ?,?,?,?, ?,?,?,?,?,?,?,?, ?, ?, ?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             '''
             
             try:
@@ -908,5 +910,4 @@ def get_client_from_db_by_client_id(client_id):
 def get_db_stats():
     """Получение статистики базы данных"""
     db = DatabaseManager()
-
     return db.get_database_stats()

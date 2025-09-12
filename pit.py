@@ -101,7 +101,7 @@ def init_bot(bot_instance, start_handler=None, callback_handler=None):
         if call.data == "pitdocs1Yes_pit":
             documents = [
             {"path": data["fio"]+"\\Документы\\"+"Яма 1. Обложка дела.docx", "name": "Обложка дела"},
-            {"path": data["fio"]+"\\Документы\\"+"Яма 2. Юр договор.docx", "name": "Юридический договор"}
+            {"path": data["fio"]+"\\Документы\\"+"2. Юр договор.docx", "name": "Юридический договор"}
             ]
             message= bot.send_message(call.message.chat.id, "Отправляю документы...")
             for doc in documents:
@@ -342,6 +342,13 @@ def FIO(message, data, user_message_id, user_message_id1):
             user_message_id = message.message_id
             bot.register_next_step_handler(message, FIO, data, user_message_id, user_message_id)
     else:
+        words = message.text.split()
+        for word in words:
+            if not word[0].isupper():  # Проверяем, что первая буква заглавная
+                message = bot.send_message(message.chat.id, text="Каждое слово должно начинаться с заглавной буквы!\nВведите ФИО клиента в формате Иванов Иван Иванович")
+                user_message_id = message.message_id
+                bot.register_next_step_handler(message, FIO, data, user_message_id, user_message_id)
+                return
         data.update({"fio": message.text})
         if len(message.text.split())==2:
             data.update({"fio_k": message.text.split()[0]+" "+list(message.text.split()[1])[0]+"."})
@@ -640,15 +647,15 @@ def data_docs(message, data, user_message_id):
                                 data["fio"]+"\\Документы\\"+"Яма 1. Обложка дела.docx")
         
         replace_words_in_word(["{{ Год }}", "{{ NКлиента }}", "{{ Город }}", 
-                           "{{ Дата }}", "{{ ФИО }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}",
-                           "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}", "{{ Индекс }}","{{ Адрес }}","{{ Дата_ДТП }}",
-                           "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ ФИОк }}"],
-                           [str(datetime.now().year), str(data['client_id']), "Томск", str(datetime.now().strftime("%d.%m.%Y")),
-                            str(data["fio"]), str(data["seria_pasport"]),str(data["number_pasport"]), str(data["where_pasport"]),
-                            str(data["when_pasport"]), str(data["index_postal"]), str(data["address"]), str(data["date_dtp"]), str(data["time_dtp"]), 
-                            str(data["address_dtp"]), str(data["fio_k"])],
-                            "Шаблоны\\2. Яма\\Яма 2. Юр договор.docx",
-                             data["fio"]+"\\Документы\\"+"Яма 2. Юр договор.docx")
+                            "{{ Дата }}", "{{ ФИО }}","{{ ДР }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}",
+                            "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}", "{{ Индекс }}","{{ Адрес }}","{{ Дата_ДТП }}",
+                            "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ ФИОк }}"],
+                            [str(data['year']), str(data['client_id']), str(data["city"]), str(datetime.now().strftime("%d.%m.%Y")),
+                                str(data["fio"]), str(data["date_of_birth"]), str(data["seria_pasport"]),str(data["number_pasport"]), str(data["where_pasport"]),
+                                str(data["when_pasport"]), str(data["index_postal"]), str(data["address"]), str(data["date_dtp"]), str(data["time_dtp"]), 
+                                str(data["address_dtp"]), str(data["fio_k"])],
+                                "Шаблоны\\1. ДТП\\1. На ремонт\\2. Юр договор.docx",
+                                data["fio"]+"\\Документы\\"+"2. Юр договор.docx")
         
         user_id = message.from_user.id
         user_temp_data[user_id] = data
@@ -822,6 +829,13 @@ def fio_not(message, data, user_message_id):
             user_message_id = message.message_id
             bot.register_next_step_handler(message, fio_not, data, user_message_id)
     else:
+        words = message.text.split()
+        for word in words:
+            if not word[0].isupper():  # Проверяем, что первая буква заглавная
+                message = bot.send_message(message.chat.id, text="Каждое слово должно начинаться с заглавной буквы!\nВведите ФИО представителя в формате Иванов Иван Иванович")
+                user_message_id = message.message_id
+                bot.register_next_step_handler(message, fio_not, data, user_message_id)
+                return
         data.update({"fio_not": message.text})
         message = bot.send_message(message.chat.id, text="Введите номер квитанции об оплате услуг нотариуса".format(message.from_user))
         user_message_id = message.message_id
