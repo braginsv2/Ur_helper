@@ -19,7 +19,6 @@ from telebot.handler_backends import ContinueHandling, CancelUpdate
 bot = telebot.TeleBot(TOKEN)
 db = DatabaseManager()
 
-
 list_file ={}
 media_groups_buffer = defaultdict(list)
 media_group_timers = {}
@@ -1730,3 +1729,4 @@ def clear_chat_history_optimized(message, count):
 if __name__ == '__main__':
 
     bot.infinity_polling()
+
