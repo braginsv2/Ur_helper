@@ -8,7 +8,6 @@ from word_utils import replace_words_in_word, create_fio_data_file
 from database import DatabaseManager, save_client_to_db_with_id
 from telebot.apihelper import ApiException
 
-
 bot = None
 callback_client_details2_handler = None
 user_temp_data = {}
@@ -3723,4 +3722,5 @@ def clear_chat_history_optimized(message, count):
         except Exception:
 
             continue
+
 
