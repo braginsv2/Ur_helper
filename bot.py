@@ -16,6 +16,7 @@ from database import DatabaseManager, get_client_from_db_by_client_id, search_cl
 from telebot.apihelper import ApiException
 from telebot.handler_backends import ContinueHandling, CancelUpdate
 
+
 bot = telebot.TeleBot(TOKEN)
 db = DatabaseManager()
 
@@ -1729,6 +1730,7 @@ def clear_chat_history_optimized(message, count):
 if __name__ == '__main__':
 
     bot.infinity_polling()
+
 
 
 
