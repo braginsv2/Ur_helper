@@ -18,7 +18,7 @@ class DatabaseManager:
                 'database': os.getenv('DB_NAME', 'clients_db'),
                 'user': os.getenv('DB_USER', 'postgres'),
                 'password': os.getenv('DB_PASSWORD', '1234'),
-                'client_encoding': 'UTF8'  # Добавьте эту строку
+                'client_encoding': 'UTF8'  
             }
         else:
             self.connection_params = connection_params
@@ -2188,4 +2188,5 @@ def get_agent_fio_by_id(agent_id):
         with conn.cursor() as cursor:
             cursor.execute("SELECT fio FROM admins WHERE user_id = %s", (agent_id,))
             result = cursor.fetchone()
+
             return result[0] if result else "Неизвестный агент"
