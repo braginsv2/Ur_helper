@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 import os
 
+
 class DatabaseManager:
     def __init__(self, db_path="clients.db"):
         """Инициализация базы данных"""
@@ -912,4 +913,5 @@ def get_db_stats():
     db = DatabaseManager()
 
     return db.get_database_stats()
+
 
