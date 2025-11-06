@@ -11,7 +11,6 @@ from word_utils import create_fio_data_file, replace_words_in_word, get_next_bus
 
 db = DatabaseManager()
 
-
 def setup_pretenziya_handlers(bot, user_temp_data):
     """Регистрация обработчиков для претензий, заявлений к омбудсмену и исков"""
     
@@ -2554,4 +2553,5 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                 text="Неправильный формат, стоимость должна состоять только из цифр в рублях, например: 5000!\nВведите стоимость государственной пошлины"
             )
             user_message_id = message.message_id
+
             bot.register_next_step_handler(message, gos_moneyC, data, user_message_id)
