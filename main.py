@@ -10,6 +10,7 @@ from client import setup_client_handlers
 # Инициализация бота
 bot = telebot.TeleBot(config.TOKEN)
 
+
 # Глобальный словарь для временных данных пользователей
 user_temp_data = {}
 
@@ -419,4 +420,5 @@ if __name__ == '__main__':
         bot.infinity_polling(none_stop=True, timeout=60)
     except Exception as e:
         print(f"❌ Ошибка при работе бота: {e}")
+
 
