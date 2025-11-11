@@ -11,6 +11,7 @@ from word_utils import create_fio_data_file, export_clients_db_to_excel, edit_fi
 import json
 db = DatabaseManager()
 
+
 insurance_companies = [
     ('АО "Согаз"', "SOGAZ"),
     ('ПАО СК "Росгосстрах"', "Ros"),
@@ -2276,4 +2277,5 @@ def cleanup_messages(bot, chat_id, message_id, count):
         try:
             bot.delete_message(chat_id, message_id - i)
         except:
+
             pass
