@@ -13,6 +13,7 @@ from database import (
 )
 from word_utils import create_fio_data_file, replace_words_in_word, get_next_business_date
 
+
 db = DatabaseManager()
 
 insurance_companies = [
@@ -1862,6 +1863,7 @@ def cleanup_messages(bot, chat_id, message_id, count):
         except:
 
             pass
+
 
 
 
