@@ -9,6 +9,7 @@ from database import (
 )
 from word_utils import create_fio_data_file, replace_words_in_word, get_next_business_date
 
+
 db = DatabaseManager()
 
 def setup_pretenziya_handlers(bot, user_temp_data):
@@ -2555,3 +2556,4 @@ def setup_pretenziya_handlers(bot, user_temp_data):
             user_message_id = message.message_id
 
             bot.register_next_step_handler(message, gos_moneyC, data, user_message_id)
+
