@@ -11,11 +11,66 @@ from database import (
     get_client_from_db_by_client_id
 )
 from word_utils import create_fio_data_file, replace_words_in_word
+import threading
+from functools import wraps
 
+active_callbacks = {}
+callback_lock = threading.Lock()
 db = DatabaseManager()
 
 def setup_net_osago_handlers(bot, user_temp_data):
+    def prevent_double_click(timeout=2.0):
+        """
+        Декоратор для предотвращения повторных нажатий на inline-кнопки
+        timeout - время в секундах, в течение которого повторные нажатия игнорируются
+        """
+        def decorator(func):
+            @wraps(func)
+            def wrapper(call):
+                user_id = call.from_user.id
+                callback_data = call.data
+                
+                # Создаем уникальный ключ для этой комбинации пользователь+кнопка
+                key = f"{user_id}_{callback_data}"
+                
+                with callback_lock:
+                    current_time = time.time()
+                    
+                    # Проверяем, не обрабатывается ли уже этот callback
+                    if key in active_callbacks:
+                        last_time = active_callbacks[key]
+                        if current_time - last_time < timeout:
+                            # Слишком быстрое повторное нажатие - игнорируем
+                            bot.answer_callback_query(
+                                call.id, 
+                                "⏳ Пожалуйста, подождите...", 
+                                show_alert=False
+                            )
+                            return
+                    
+                    # Отмечаем начало обработки
+                    active_callbacks[key] = current_time
+                
+                try:
+                    # Сразу отвечаем на callback, чтобы убрать "часики"
+                    bot.answer_callback_query(call.id)
+                    
+                    # Выполняем основную функцию
+                    return func(call)
+                finally:
+                    # Через timeout секунд разрешаем повторное нажатие
+                    def cleanup():
+                        time.sleep(timeout)
+                        with callback_lock:
+                            if key in active_callbacks:
+                                del active_callbacks[key]
+                    
+                    threading.Thread(target=cleanup, daemon=True).start()
+            
+            return wrapper
+        return decorator
     @bot.callback_query_handler(func=lambda call: call.data.startswith("NoOsago_no_"))
+    @prevent_double_click(timeout=3.0)
     def handle_answer_no(call):
         """Клиент не получил ответ от страховой"""
         client_id = call.data.replace("NoOsago_no_", "")
@@ -27,6 +82,7 @@ def setup_net_osago_handlers(bot, user_temp_data):
         show_main_menu_by_user_id(bot, client_id)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("NoOsago_yes_"))
+    @prevent_double_click(timeout=3.0)
     def handle_NoOsago_yes(call):
         """Клиент получил ответ от страховой"""
         client_id = call.data.replace("NoOsago_yes_", "")
@@ -166,7 +222,7 @@ def setup_net_osago_handlers(bot, user_temp_data):
                                 [str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
                                     str(data['year']),str(data['client_id']), str(data["fio"]), str(data["fio_culp"])],
                                     "Шаблоны\\3. Деликт без ОСАГО\\Деликт (без ОСАГО) 1. Обложка дела.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"1. Обложка дела.docx")
+                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"Обложка дела.docx")
             replace_words_in_word(["{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}", 
                             "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}","{{ Паспорт_когда }}","{{ Дата_ДТП }}","{{ Время_ДТП }}","{{ Адрес_ДТП }}",
                             "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Марка_модель_виновника }}", "{{ Nавто_виновник }}", "{{ Телефон }}", "{{ ФИОк }}"],
@@ -215,6 +271,7 @@ def setup_net_osago_handlers(bot, user_temp_data):
     
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("NoOsago_prod_"))
+    @prevent_double_click(timeout=3.0)
     def handle_NoOsago_yes(call):
         """Клиент получил ответ от страховой"""
         client_id = call.data.replace("NoOsago_prod_", "")

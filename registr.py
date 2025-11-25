@@ -9,13 +9,80 @@ from database import (
     get_admin_from_db_by_user_id,
     search_clients_by_fio_in_db
 )
+import threading
+import time
+from functools import wraps
 
+# Словарь для отслеживания активных обработок
+active_callbacks = {}
+callback_lock = threading.Lock()
 db = DatabaseManager()
-
+active_handlers = {}
+handler_lock = threading.Lock()
 
 def setup_registration_handlers(bot, user_temp_data):
     """Регистрация всех обработчиков регистрации"""
+    def clear_step_handler(bot, chat_id):
+        """Отменяет ожидание ввода для пользователя"""
+        with handler_lock:
+            if chat_id in active_handlers:
+                try:
+                    bot.clear_step_handler_by_chat_id(chat_id)
+                except:
+                    pass
+                del active_handlers[chat_id]
+    def prevent_double_click(timeout=2.0):
+        """
+        Декоратор для предотвращения повторных нажатий на inline-кнопки
+        timeout - время в секундах, в течение которого повторные нажатия игнорируются
+        """
+        def decorator(func):
+            @wraps(func)
+            def wrapper(call):
+                user_id = call.from_user.id
+                callback_data = call.data
+                
+                # Создаем уникальный ключ для этой комбинации пользователь+кнопка
+                key = f"{user_id}_{callback_data}"
+                
+                with callback_lock:
+                    current_time = time.time()
+                    
+                    # Проверяем, не обрабатывается ли уже этот callback
+                    if key in active_callbacks:
+                        last_time = active_callbacks[key]
+                        if current_time - last_time < timeout:
+                            # Слишком быстрое повторное нажатие - игнорируем
+                            bot.answer_callback_query(
+                                call.id, 
+                                "⏳ Пожалуйста, подождите...", 
+                                show_alert=False
+                            )
+                            return
+                    
+                    # Отмечаем начало обработки
+                    active_callbacks[key] = current_time
+                
+                try:
+                    # Сразу отвечаем на callback, чтобы убрать "часики"
+                    bot.answer_callback_query(call.id)
+                    
+                    # Выполняем основную функцию
+                    return func(call)
+                finally:
+                    # Через timeout секунд разрешаем повторное нажатие
+                    def cleanup():
+                        time.sleep(timeout)
+                        with callback_lock:
+                            if key in active_callbacks:
+                                del active_callbacks[key]
+                    
+                    threading.Thread(target=cleanup, daemon=True).start()
+            
+            return wrapper
+        return decorator
     @bot.callback_query_handler(func=lambda call: call.data == "process_invited_client")
+    @prevent_double_click(timeout=3.0)
     def process_invited_client_consent(call):
         """Показ согласия приглашенному клиенту"""
         user_id = call.from_user.id
@@ -25,9 +92,8 @@ def setup_registration_handlers(bot, user_temp_data):
         
         consent_text = (
             f"Вас пригласил {inviter_fio}\n\n"
-            "🤖 Я буду собирать Ваши личные данные, обрабатывать и передавать своей команде Юристов\n\n"
-            "Сейчас Вам пришло «Соглашение на обработку персональных данных». "
-            "Ознакомьтесь и подпишитесь!"
+            "Моя задача — собрать ваши личные данные для передачи команде юристов.\n\n"
+            "Сейчас Вам поступит предложение подписать «Согласие на обработку персональных данных». Ознакомьтесь с документом и подтвердите его."
         )
         
         keyboard = types.InlineKeyboardMarkup()
@@ -44,6 +110,7 @@ def setup_registration_handlers(bot, user_temp_data):
     # ========== ОБРАБОТКА ПРИГЛАШЕННЫХ КЛИЕНТОВ ==========
 
     @bot.callback_query_handler(func=lambda call: call.data in ["consent_invited_yes", "consent_invited_no"])
+    @prevent_double_click(timeout=3.0)
     def handle_invited_consent(call):
         """Обработка согласия приглашенного клиента"""
         user_id = call.from_user.id
@@ -134,8 +201,12 @@ def setup_registration_handlers(bot, user_temp_data):
             "Введите серию паспорта (4 цифры):"
         )
         bot.register_next_step_handler(msg, process_invited_client_passport_series, data, msg.message_id)
+
     def process_invited_client_passport_series(message, data, prev_message_id):
         """Обработка серии паспорта для приглашенного клиента"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -145,22 +216,73 @@ def setup_registration_handlers(bot, user_temp_data):
         series = message.text.strip()
         
         if not series.isdigit() or len(series) != 4:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◌ Назад", callback_data="back_invited_consent"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Серия паспорта должна содержать 4 цифры. Попробуйте снова:"
+                "❌ Серия паспорта должна содержать 4 цифры. Попробуйте снова:",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_invited_passport_series'
             bot.register_next_step_handler(msg, process_invited_client_passport_series, data, msg.message_id)
             return
         
         data['seria_pasport'] = series
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите номер паспорта (6 цифр):")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_series"))
+        msg = bot.send_message(message.chat.id, "Введите номер паспорта (6 цифр):", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_invited_passport_number'
         bot.register_next_step_handler(msg, process_invited_client_passport_number, data, msg.message_id)
 
+    @bot.callback_query_handler(func=lambda call: call.data == "back_invited_consent")
+    @prevent_double_click(timeout=3.0)
+    def back_invited_consent_handler(call):
+        """Возврат к согласию приглашенного клиента"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        # Удаляем сообщение "Заполните паспортные данные"
+        if 'passport_info_message_id' in data:
+            try:
+                bot.delete_message(call.message.chat.id, data['passport_info_message_id'])
+                del data['passport_info_message_id']
+            except:
+                pass
+        
+        # Возвращаемся к показу согласия
+        process_invited_client_consent(call)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_invited_passport_series")
+    @prevent_double_click(timeout=3.0)
+    def back_invited_passport_series_handler(call):
+        """Возврат к вводу серии паспорта для приглашенного"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_consent"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите серию паспорта (4 цифры):",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_invited_passport_series'
+        bot.register_next_step_handler(message, process_invited_client_passport_series, data, message.message_id)
 
     def process_invited_client_passport_number(message, data, prev_message_id):
         """Обработка номера паспорта для приглашенного клиента"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -170,22 +292,53 @@ def setup_registration_handlers(bot, user_temp_data):
         number = message.text.strip()
         
         if not number.isdigit() or len(number) != 6:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_series"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Номер паспорта должен содержать 6 цифр. Попробуйте снова:"
+                "❌ Номер паспорта должен содержать 6 цифр. Попробуйте снова:",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_invited_passport_number'
             bot.register_next_step_handler(msg, process_invited_client_passport_number, data, msg.message_id)
             return
         
         data['number_pasport'] = number
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите, кем выдан паспорт:")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_number"))
+        msg = bot.send_message(message.chat.id, "Введите, кем выдан паспорт:", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_invited_passport_issued'
         bot.register_next_step_handler(msg, process_invited_client_passport_issued_by, data, msg.message_id)
 
+    @bot.callback_query_handler(func=lambda call: call.data == "back_invited_passport_number")
+    @prevent_double_click(timeout=3.0)
+    def back_invited_passport_number_handler(call):
+        """Возврат к вводу номера паспорта для приглашенного"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_series"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите номер паспорта (6 цифр):",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_invited_passport_number'
+        bot.register_next_step_handler(message, process_invited_client_passport_number, data, message.message_id)
 
     def process_invited_client_passport_issued_by(message, data, prev_message_id):
         """Обработка поля 'кем выдан' для приглашенного клиента"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -195,12 +348,39 @@ def setup_registration_handlers(bot, user_temp_data):
         data['where_pasport'] = message.text.strip()
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_issued"))
+        msg = bot.send_message(message.chat.id, "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_invited_passport_date'
         bot.register_next_step_handler(msg, process_invited_client_passport_date, data, msg.message_id)
 
+    @bot.callback_query_handler(func=lambda call: call.data == "back_invited_passport_issued")
+    @prevent_double_click(timeout=3.0)
+    def back_invited_passport_issued_handler(call):
+        """Возврат к вводу 'кем выдан' для приглашенного"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_number"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите, кем выдан паспорт:",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_invited_passport_issued'
+        bot.register_next_step_handler(message, process_invited_client_passport_issued_by, data, message.message_id)
 
     def process_invited_client_passport_date(message, data, prev_message_id):
         """Обработка даты выдачи паспорта для приглашенного клиента"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -210,22 +390,53 @@ def setup_registration_handlers(bot, user_temp_data):
         date_text = message.text.strip()
         
         if not re.match(r'^\d{2}\.\d{2}\.\d{4}$', date_text):
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_issued"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Неверный формат даты. Введите в формате ДД.ММ.ГГГГ:"
+                "❌ Неверный формат даты. Введите в формате ДД.ММ.ГГГГ:",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_invited_passport_date'
             bot.register_next_step_handler(msg, process_invited_client_passport_date, data, msg.message_id)
             return
         
         data['when_pasport'] = date_text
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите дату рождения (ДД.ММ.ГГГГ):")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_date"))
+        msg = bot.send_message(message.chat.id, "Введите дату рождения (ДД.ММ.ГГГГ):", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_invited_birth_date'
         bot.register_next_step_handler(msg, process_invited_client_birth_date, data, msg.message_id)
 
+    @bot.callback_query_handler(func=lambda call: call.data == "back_invited_passport_date")
+    @prevent_double_click(timeout=3.0)
+    def back_invited_passport_date_handler(call):
+        """Возврат к вводу даты выдачи паспорта для приглашенного"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_issued"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите дату выдачи паспорта (ДД.ММ.ГГГГ):",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_invited_passport_date'
+        bot.register_next_step_handler(message, process_invited_client_passport_date, data, message.message_id)
 
     def process_invited_client_birth_date(message, data, prev_message_id):
         """Обработка даты рождения для приглашенного клиента"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -235,22 +446,53 @@ def setup_registration_handlers(bot, user_temp_data):
         date_text = message.text.strip()
         
         if not re.match(r'^\d{2}\.\d{2}\.\d{4}$', date_text):
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_date"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Неверный формат даты. Введите в формате ДД.ММ.ГГГГ:"
+                "❌ Неверный формат даты. Введите в формате ДД.ММ.ГГГГ:",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_invited_birth_date'
             bot.register_next_step_handler(msg, process_invited_client_birth_date, data, msg.message_id)
             return
         
         data['date_of_birth'] = date_text
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите город рождения:")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_birth_date"))
+        msg = bot.send_message(message.chat.id, "Введите город рождения:", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_invited_birth_city'
         bot.register_next_step_handler(msg, process_invited_client_birth_city, data, msg.message_id)
 
+    @bot.callback_query_handler(func=lambda call: call.data == "back_invited_birth_date")
+    @prevent_double_click(timeout=3.0)
+    def back_invited_birth_date_handler(call):
+        """Возврат к вводу даты рождения для приглашенного"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_date"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите дату рождения (ДД.ММ.ГГГГ):",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_invited_birth_date'
+        bot.register_next_step_handler(message, process_invited_client_birth_date, data, message.message_id)
 
     def process_invited_client_birth_city(message, data, prev_message_id):
         """Обработка города рождения для приглашенного клиента"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -260,12 +502,39 @@ def setup_registration_handlers(bot, user_temp_data):
         data['city_birth'] = message.text.strip()
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите адрес прописки:")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_birth_city"))
+        msg = bot.send_message(message.chat.id, "Введите адрес регистрации по паспорту:", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_invited_address'
         bot.register_next_step_handler(msg, process_invited_client_address, data, msg.message_id)
 
+    @bot.callback_query_handler(func=lambda call: call.data == "back_invited_birth_city")
+    @prevent_double_click(timeout=3.0)
+    def back_invited_birth_city_handler(call):
+        """Возврат к вводу города рождения для приглашенного"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_birth_date"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите город рождения:",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_invited_birth_city'
+        bot.register_next_step_handler(message, process_invited_client_birth_city, data, message.message_id)
 
     def process_invited_client_address(message, data, prev_message_id):
         """Обработка адреса прописки для приглашенного клиента"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -275,12 +544,39 @@ def setup_registration_handlers(bot, user_temp_data):
         data['address'] = message.text.strip()
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите почтовый индекс:")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_address"))
+        msg = bot.send_message(message.chat.id, "Введите почтовый индекс:", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_invited_postal_index'
         bot.register_next_step_handler(msg, process_invited_client_postal_index, data, msg.message_id)
 
+    @bot.callback_query_handler(func=lambda call: call.data == "back_invited_address")
+    @prevent_double_click(timeout=3.0)
+    def back_invited_address_handler(call):
+        """Возврат к вводу адреса для приглашенного"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_birth_city"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите адрес регистрации по паспорту:",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_invited_address'
+        bot.register_next_step_handler(message, process_invited_client_address, data, message.message_id)
 
     def process_invited_client_postal_index(message, data, prev_message_id):
         """Обработка почтового индекса для приглашенного клиента"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -290,10 +586,14 @@ def setup_registration_handlers(bot, user_temp_data):
         index = message.text.strip()
         
         if not index.isdigit() or len(index) != 6:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_address"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Почтовый индекс должен содержать 6 цифр. Попробуйте снова:"
+                "❌ Почтовый индекс должен содержать 6 цифр. Попробуйте снова:",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_invited_postal_index'
             bot.register_next_step_handler(msg, process_invited_client_postal_index, data, msg.message_id)
             return
         
@@ -303,14 +603,18 @@ def setup_registration_handlers(bot, user_temp_data):
         # Переходим к загрузке фото паспорта
         msg = bot.send_message(
             message.chat.id,
-            "✅ Данные приняты!\n\n🤖 Прикрепите фото 2-3 страницы паспорта:"
+            "✅ Данные приняты!\n\n🤖 Прикрепите фото основного разворота паспорта (2-3 стр):"
         )
         
+        active_handlers[message.chat.id] = 'waiting_invited_passport_photo_2_3'
         bot.register_next_step_handler(msg, process_invited_client_passport_photo_2_3, data, msg.message_id)
 
 
     def process_invited_client_passport_photo_2_3(message, data, message_id):
         """Обработка фото 2-3 страницы паспорта для приглашенного клиента"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id) 
+
         file_id = None
         file_extension = None
         
@@ -332,7 +636,7 @@ def setup_registration_handlers(bot, user_temp_data):
                 msg = bot.send_message(
                     message.chat.id, 
                     "❌ Неподдерживаемый формат файла. Отправьте фото или файл в формате JPG, PNG, PDF:\n\n"
-                    "Прикрепите фото 2-3 страницы паспорта:"
+                    "Прикрепите фото основного разворота паспорта (2-3 стр):"
                 )
                 bot.register_next_step_handler(msg, process_invited_client_passport_photo_2_3, data, msg.message_id)
                 return
@@ -351,7 +655,7 @@ def setup_registration_handlers(bot, user_temp_data):
             bot.delete_message(message.chat.id, message.message_id)
             msg = bot.send_message(
                 message.chat.id, 
-                "❌ Пожалуйста, отправьте фото или файл. Прикрепите фото 2-3 страницы паспорта:"
+                "❌ Пожалуйста, отправьте фото или файл. Прикрепите фото основного разворота паспорта (2-3 стр):"
             )
             bot.register_next_step_handler(msg, process_invited_client_passport_photo_2_3, data, msg.message_id)
             return
@@ -377,7 +681,7 @@ def setup_registration_handlers(bot, user_temp_data):
             
             msg = bot.send_message(
                 message.chat.id, 
-                "✅ Файл принят!\n\n🤖 Теперь прикрепите фото 4-5 страницы паспорта:"
+                "✅ Файл принят!\n\n📎 Теперь прикрепите фотографию страницы паспорта с регистрацией (разворот страниц 4–5 или 6–7)."
             )
             bot.register_next_step_handler(msg, process_invited_client_passport_photo_4_5, data, msg.message_id)
             
@@ -388,7 +692,7 @@ def setup_registration_handlers(bot, user_temp_data):
             msg = bot.send_message(
                 message.chat.id, 
                 "❌ Ошибка при загрузке файла. Попробуйте еще раз:\n\n"
-                "Прикрепите фото 2-3 страницы паспорта:"
+                "Прикрепите фото основного разворота паспорта (2-3 стр):"
             )
             bot.register_next_step_handler(msg, process_invited_client_passport_photo_2_3, data, msg.message_id)
 
@@ -416,7 +720,7 @@ def setup_registration_handlers(bot, user_temp_data):
                 msg = bot.send_message(
                     message.chat.id, 
                     "❌ Неподдерживаемый формат файла. Отправьте фото или файл в формате JPG, PNG, PDF:\n\n"
-                    "Прикрепите фото 4-5 страницы паспорта:"
+                    "Теперь прикрепите фото прописки паспорта (4-5 или 6-7 стр):"
                 )
                 bot.register_next_step_handler(msg, process_invited_client_passport_photo_4_5, data, msg.message_id)
                 return
@@ -435,7 +739,7 @@ def setup_registration_handlers(bot, user_temp_data):
             bot.delete_message(message.chat.id, message.message_id)
             msg = bot.send_message(
                 message.chat.id, 
-                "❌ Пожалуйста, отправьте фото или файл. Прикрепите фото 4-5 страницы паспорта:"
+                "❌ Пожалуйста, отправьте фото или файл. Теперь прикрепите фото прописки паспорта (4-5 или 6-7 стр):"
             )
             bot.register_next_step_handler(msg, process_invited_client_passport_photo_4_5, data, msg.message_id)
             return
@@ -503,16 +807,18 @@ def setup_registration_handlers(bot, user_temp_data):
                     inviter_id = data.get('invited_by_user_id')
                     
                     # Клиенту говорим ждать
-                    bot.send_message(
+                    msg = bot.send_message(
                         message.chat.id,
                         "✅ Регистрация завершена!\n\n"
                         "⏳ Ожидайте подтверждения от агента."
                     )
-                    
+                    if message.from_user.id not in user_temp_data:
+                        user_temp_data[message.from_user.id] = {}
+                    user_temp_data[message.from_user.id]['message_id'] = msg.message_id
                     # Агенту отправляем запрос на подтверждение
                     keyboard = types.InlineKeyboardMarkup()
                     btn_approve = types.InlineKeyboardButton(
-                        "✅ Подтвердить регистрацию", 
+                        "✅ Подтвердить", 
                         callback_data=f"approve_client_reg_{user_id}"
                     )
                     btn_reject = types.InlineKeyboardButton(
@@ -558,10 +864,11 @@ def setup_registration_handlers(bot, user_temp_data):
             msg = bot.send_message(
                 message.chat.id, 
                 "❌ Ошибка при загрузке файла. Попробуйте еще раз:\n\n"
-                "Прикрепите фото 4-5 страницы паспорта:"
+                "Теперь прикрепите фото прописки паспорта (4-5 или 6-7 стр):"
             )
             bot.register_next_step_handler(msg, process_invited_client_passport_photo_4_5, data, msg.message_id)
     @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_client_reg_"))
+    @prevent_double_click(timeout=3.0)
     def approve_client_registration_by_agent(call):
         """Подтверждение регистрации клиента агентом"""
         agent_id = call.from_user.id
@@ -645,14 +952,19 @@ def setup_registration_handlers(bot, user_temp_data):
         
         # Уведомляем клиента
         try:
+            try:
+                bot.delete_message(client_user_id, user_temp_data[client_user_id]['message_id'])
+            except:
+                pass
             keyboard_client = types.InlineKeyboardMarkup()
             keyboard_client.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
-            bot.send_message(
+            msg = bot.send_message(
                 client_user_id,
                 "✅ Ваша регистрация подтверждена агентом!\n\n"
                 "Сейчас агент начнет заполнять данные договора.",
                 reply_markup=keyboard_client
             )
+            user_temp_data[client_user_id]['message_id'] = msg.message_id
         except Exception as e:
             print(f"Ошибка уведомления клиента: {e}")
         
@@ -660,6 +972,7 @@ def setup_registration_handlers(bot, user_temp_data):
 
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("reject_client_reg_"))
+    @prevent_double_click(timeout=3.0)
     def reject_client_registration_by_agent(call):
         """Отклонение регистрации клиента агентом"""
         agent_id = call.from_user.id
@@ -718,15 +1031,15 @@ def setup_registration_handlers(bot, user_temp_data):
     # ========== САМОСТОЯТЕЛЬНАЯ РЕГИСТРАЦИЯ ==========
     
     @bot.callback_query_handler(func=lambda call: call.data == "btn_registratsia")
+    @prevent_double_click(timeout=3.0)
     def callback_registratsia(call):
         """Начало регистрации - показ соглашения"""
         user_id = call.from_user.id
         
         # Отправляем соглашение с PDF документом
         consent_text = (
-            "Я буду собирать Ваши личные данные, обрабатывать и передавать своей команде Юристов\n\n"
-            "Сейчас Вам пришло «Соглашение на обработку персональных данных». "
-            "Ознакомьтесь и подпишитесь!"
+            "Для начала сотрудничества нам необходимо ваше согласие на обработку персональных данных.\n\n"
+            "Ознакомьтесь с документом и подтвердите его."
         )
         
         keyboard = types.InlineKeyboardMarkup()
@@ -742,6 +1055,7 @@ def setup_registration_handlers(bot, user_temp_data):
         except FileNotFoundError:
             bot.send_message(call.message.chat.id, consent_text + "\n\n⚠️ Файл соглашения не найден", reply_markup=keyboard)
     @bot.callback_query_handler(func=lambda call: call.data in ["consent_confirm", "consent_decline"])
+    @prevent_double_click(timeout=3.0)
     def handle_consent_decision(call):
         """Обработка решения по согласию"""
         user_id = call.from_user.id
@@ -761,7 +1075,7 @@ def setup_registration_handlers(bot, user_temp_data):
         
         keyboard = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton("🏢 ЦПР", callback_data="admin_CPR")
-        btn2 = types.InlineKeyboardButton("👨‍💼 Агент", callback_data="admin_agent")
+        btn2 = types.InlineKeyboardButton("👨‍💼 Офис", callback_data="admin_agent")
         btn3 = types.InlineKeyboardButton("👤 Клиент", callback_data="admin_client")
         
         keyboard.add(btn1)
@@ -774,30 +1088,39 @@ def setup_registration_handlers(bot, user_temp_data):
             reply_markup=keyboard
         )
     @bot.callback_query_handler(func=lambda call: call.data in ["admin_CPR", "admin_agent"])
+    @prevent_double_click(timeout=3.0)
     def callback_registratsia_pers(call):
         """Выбор роли в ЦПР или Агент"""
         keyboard = types.InlineKeyboardMarkup()
         
         if call.data == "admin_CPR":
-            btn1 = types.InlineKeyboardButton("👔 Директор", callback_data="admin_CPR_director")
-            btn2 = types.InlineKeyboardButton("🔧 Технический директор", callback_data="admin_CPR_tech_director")
-            btn3 = types.InlineKeyboardButton("⚖️ Юрист", callback_data="admin_CPR_ur")
-            btn4 = types.InlineKeyboardButton("🔍 Эксперт", callback_data="admin_CPR_exp")
+            btn1 = types.InlineKeyboardButton("👔 Генеральный директор", callback_data="admin_CPR_director")
+            btn2 = types.InlineKeyboardButton("💻 IT отдел", callback_data="admin_CPR_it")
+            btn3 = types.InlineKeyboardButton("⚖️ Претензионный отдел", callback_data="admin_CPR_pret")
+            btn4 = types.InlineKeyboardButton("🔍 Исковой отдел", callback_data="admin_CPR_isk")
+            btn5 = types.InlineKeyboardButton("📊 Бухгалтер", callback_data="admin_CPR_accountant")
+            btn6 = types.InlineKeyboardButton("🏷️ Оценщик", callback_data="admin_CPR_appraiser")
+            btn7 = types.InlineKeyboardButton("👥 HR отдел", callback_data="admin_CPR_hr")
+
+            keyboard.add(btn1)
+            keyboard.add(btn2)
+            keyboard.add(btn3)
+            keyboard.add(btn4)
+            keyboard.add(btn5)
+            keyboard.add(btn6)
+            keyboard.add(btn7)
+        
+        elif call.data == "admin_agent":
+            btn1 = types.InlineKeyboardButton("👨‍💼 Директор офиса", callback_data="admin_office_director_office")
+            btn2 = types.InlineKeyboardButton("📋 Администратор", callback_data="admin_office_admin")
+            btn3 = types.InlineKeyboardButton("⚖️ Юрист", callback_data="admin_office_ur")
+            btn4 = types.InlineKeyboardButton("🤝 Агент", callback_data="admin_office_agent")
             
             keyboard.add(btn1)
             keyboard.add(btn2)
             keyboard.add(btn3)
             keyboard.add(btn4)
-        
-        elif call.data == "admin_agent":
-            btn1 = types.InlineKeyboardButton("👨‍💼 Руководитель офиса", callback_data="admin_agent_director_office")
-            btn2 = types.InlineKeyboardButton("📋 Администратор", callback_data="admin_agent_admin")
-            btn3 = types.InlineKeyboardButton("👤 Агент", callback_data="admin_agent_agent")
-            
-            keyboard.add(btn1)
-            keyboard.add(btn2)
-            keyboard.add(btn3)
-        
+
         btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="btn_registratsia")
         keyboard.add(btn_back)
         
@@ -810,19 +1133,24 @@ def setup_registration_handlers(bot, user_temp_data):
     
     
     @bot.callback_query_handler(func=lambda call: call.data in [
-        "admin_CPR_director", "admin_CPR_tech_director", "admin_CPR_ur", "admin_CPR_exp",
-        "admin_agent_director_office", "admin_agent_admin", "admin_agent_agent", "admin_client"
+        "admin_CPR_director", "admin_CPR_it", "admin_CPR_pret", "admin_CPR_isk", "admin_CPR_accountant", "admin_CPR_appraiser", "admin_CPR_hr",
+        "admin_office_director_office", "admin_office_admin", "admin_office_ur", "admin_office_agent","admin_client"
     ])
+    @prevent_double_click(timeout=3.0)
     def callback_admin_city(call):
         """Выбор конкретной роли и переход к выбору города"""
         role_mapping = {
-            "admin_CPR_director": "Директор",
-            "admin_CPR_tech_director": "Технический директор",
-            "admin_CPR_ur": "Юрист",
-            "admin_CPR_exp": "Эксперт",
-            "admin_agent_director_office": "Руководитель офиса",
-            "admin_agent_admin": "Администратор",
-            "admin_agent_agent": "Агент",
+            "admin_CPR_director": "Генеральный директор",
+            "admin_CPR_it": "IT отдел",
+            "admin_CPR_pret": "Претензионный отдел",
+            "admin_CPR_isk": "Исковой отдел",
+            "admin_CPR_accountant": "Бухгалтер",
+            "admin_CPR_appraiser": "Оценщик",
+            "admin_CPR_hr": "HR отдел",
+            "admin_office_director_office": "Директор офиса",
+            "admin_office_admin": "Администратор",
+            "admin_office_ur": "Юрист",
+            "admin_office_agent": "Агент",
             "admin_client": "Клиент"
         }
         
@@ -836,21 +1164,24 @@ def setup_registration_handlers(bot, user_temp_data):
         keyboard = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton("🏙 Томск", callback_data="btn_city_Tomsk_admin")
         btn2 = types.InlineKeyboardButton("🏙 Красноярск", callback_data="btn_city_Krasnoyarsk_admin")
+        btn3 = types.InlineKeyboardButton("🏙 Новосибирск", callback_data="btn_city_Novosibirsk_admin")
         btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="btn_registratsia")
         
         keyboard.add(btn1)
         keyboard.add(btn2)
+        keyboard.add(btn3)
         keyboard.add(btn_back)
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="Выберите город:",
+            text="Для начала работы, пожалуйста, предоставьте ваши данные.\n\nВыберите город:",
             reply_markup=keyboard
         )
     
     
-    @bot.callback_query_handler(func=lambda call: call.data in ["btn_city_Tomsk_admin", "btn_city_Krasnoyarsk_admin"])
+    @bot.callback_query_handler(func=lambda call: call.data in ["btn_city_Tomsk_admin", "btn_city_Krasnoyarsk_admin", "btn_city_Novosibirsk_admin"])
+    @prevent_double_click(timeout=3.0)
     def callback_admin_value(call):
         """Выбор города и запрос ФИО"""
         user_id = call.from_user.id
@@ -860,21 +1191,54 @@ def setup_registration_handlers(bot, user_temp_data):
             data['city_admin'] = "Томск"
         elif call.data == "btn_city_Krasnoyarsk_admin":
             data['city_admin'] = "Красноярск"
+        elif call.data == "btn_city_Novosibirsk_admin":
+            data['city_admin'] = "Новосибирск"
         
         user_temp_data[user_id] = data
-        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_role_selection"))
         # Запрос ФИО
         message = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="Введите ФИО в формате: Иванов Иван Иванович"
+            text="Введите ФИО в формате: Иванов Иван Иванович",
+            reply_markup = keyboard
         )
         
+        active_handlers[call.message.chat.id] = 'waiting_fio'
         bot.register_next_step_handler(message, process_fio_admin, data, message.message_id)
-    
+        
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_role_selection")
+    @prevent_double_click(timeout=3.0)
+    def back_to_role_selection(call):
+        """Возврат к выбору роли"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+
+        
+        keyboard = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("🏙 Томск", callback_data="btn_city_Tomsk_admin")
+        btn2 = types.InlineKeyboardButton("🏙 Красноярск", callback_data="btn_city_Krasnoyarsk_admin")
+        btn3 = types.InlineKeyboardButton("🏙 Новосибирск", callback_data="btn_city_Novosibirsk_admin")
+        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="btn_registratsia")
+        
+        keyboard.add(btn1)
+        keyboard.add(btn2)
+        keyboard.add(btn3)
+        keyboard.add(btn_back)
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Выберите город:",
+            reply_markup=keyboard
+        )
     
     def process_fio_admin(message, data, prev_message_id):
         """Обработка ввода ФИО"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)
+
         try:
             bot.delete_message(message.chat.id, prev_message_id)
         except:
@@ -887,21 +1251,29 @@ def setup_registration_handlers(bot, user_temp_data):
         
         # Проверка формата ФИО
         if len(message.text.split()) < 2:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_role_selection"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Неправильный формат ввода!\nВведите ФИО в формате: Иванов Иван Иванович"
+                "❌ Неправильный формат ввода!\nВведите ФИО в формате: Иванов Иван Иванович",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_fio'
             bot.register_next_step_handler(msg, process_fio_admin, data, msg.message_id)
             return
         
         words = message.text.split()
         for word in words:
             if not word[0].isupper():
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_role_selection"))
                 msg = bot.send_message(
                     message.chat.id,
                     "❌ Каждое слово должно начинаться с заглавной буквы!\n"
-                    "Введите ФИО в формате: Иванов Иван Иванович"
+                    "Введите ФИО в формате: Иванов Иван Иванович",
+                    reply_markup=keyboard
                 )
+                active_handlers[message.chat.id] = 'waiting_fio'
                 bot.register_next_step_handler(msg, process_fio_admin, data, msg.message_id)
                 return
         
@@ -944,13 +1316,39 @@ def setup_registration_handlers(bot, user_temp_data):
         
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите номер телефона (например, +79001234567):")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_fio_input"))
+        msg = bot.send_message(message.chat.id, "Введите номер телефона (например, +79001234567):", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_phone'
         bot.register_next_step_handler(msg, process_phone_registration, data, msg.message_id)
 
-    
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_fio_input")
+    @prevent_double_click(timeout=3.0)
+    def back_to_fio_input(call):
+        """Возврат к вводу ФИО"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_role_selection"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите ФИО в формате: Иванов Иван Иванович",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_fio'
+        bot.register_next_step_handler(message, process_fio_admin, data, message.message_id)
 
     def process_phone_registration(message, data, prev_message_id):
         """Обработка номера телефона"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -962,10 +1360,14 @@ def setup_registration_handlers(bot, user_temp_data):
         # Базовая проверка номера телефона
         clean_phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
         if not re.match(r'^\+?[78]?\d{10,11}$', clean_phone):
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_fio_input"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Неверный формат номера телефона. Введите снова (например, +79001234567):"
+                "❌ Неверный формат номера телефона. Введите снова (например, +79001234567):",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_phone'
             bot.register_next_step_handler(msg, process_phone_registration, data, msg.message_id)
             return
         
@@ -985,13 +1387,51 @@ def setup_registration_handlers(bot, user_temp_data):
         user_temp_data[message.from_user.id] = data
         
         # Теперь запрашиваем серию паспорта - это сообщение будет меняться
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_phone_input"))
         msg = bot.send_message(
             message.chat.id,
-            "Введите серию паспорта (4 цифры):"
+            "Введите серию паспорта (4 цифры):",
+            reply_markup=keyboard
         )
+        active_handlers[message.chat.id] = 'waiting_passport_series'
         bot.register_next_step_handler(msg, process_new_passport_series, data, msg.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_phone_input")
+    @prevent_double_click(timeout=3.0)
+    def back_to_phone_input(call):
+        """Возврат к вводу телефона"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        # Удаляем сообщение с паспортными данными если оно есть
+        if 'passport_info_message_id' in data:
+            try:
+                bot.delete_message(call.message.chat.id, data['passport_info_message_id'])
+                del data['passport_info_message_id']
+            except:
+                pass
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_fio_input"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите номер телефона (например, +79001234567):",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_phone'
+        bot.register_next_step_handler(message, process_phone_registration, data, message.message_id)
+
     def process_new_passport_series(message, data, prev_message_id):
         """Обработка серии паспорта"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -1001,21 +1441,53 @@ def setup_registration_handlers(bot, user_temp_data):
         series = message.text.strip()
         
         if not series.isdigit() or len(series) != 4:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_phone_input"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Серия паспорта должна содержать 4 цифры. Попробуйте снова:"
+                "❌ Серия паспорта должна содержать 4 цифры. Попробуйте снова:",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_passport_series'
             bot.register_next_step_handler(msg, process_new_passport_series, data, msg.message_id)
             return
         
         data['seria_pasport'] = series
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите номер паспорта (6 цифр):")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_series"))
+        msg = bot.send_message(message.chat.id, "Введите номер паспорта (6 цифр):", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_passport_number'
         bot.register_next_step_handler(msg, process_new_passport_number, data, msg.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_passport_series")
+    @prevent_double_click(timeout=3.0)
+    def back_to_passport_series(call):
+        """Возврат к вводу серии паспорта"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_phone_input"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите серию паспорта (4 цифры):",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_passport_series'
+        bot.register_next_step_handler(message, process_new_passport_series, data, message.message_id)
 
     def process_new_passport_number(message, data, prev_message_id):
         """Обработка номера паспорта"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -1025,21 +1497,53 @@ def setup_registration_handlers(bot, user_temp_data):
         number = message.text.strip()
         
         if not number.isdigit() or len(number) != 6:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_series"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Номер паспорта должен содержать 6 цифр. Попробуйте снова:"
+                "❌ Номер паспорта должен содержать 6 цифр. Попробуйте снова:",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_passport_number'
             bot.register_next_step_handler(msg, process_new_passport_number, data, msg.message_id)
             return
         
         data['number_pasport'] = number
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите, кем выдан паспорт:")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_number"))
+        msg = bot.send_message(message.chat.id, "Введите, кем выдан паспорт:", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_passport_issued'
         bot.register_next_step_handler(msg, process_new_passport_issued_by, data, msg.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_passport_number")
+    @prevent_double_click(timeout=3.0)
+    def back_to_passport_number(call):
+        """Возврат к вводу номера паспорта"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_series"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите номер паспорта (6 цифр):",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_passport_number'
+        bot.register_next_step_handler(message, process_new_passport_number, data, message.message_id)
 
     def process_new_passport_issued_by(message, data, prev_message_id):
         """Обработка поля 'кем выдан'"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -1049,11 +1553,39 @@ def setup_registration_handlers(bot, user_temp_data):
         data['where_pasport'] = message.text.strip()
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_issued"))
+        msg = bot.send_message(message.chat.id, "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_passport_date'
         bot.register_next_step_handler(msg, process_new_passport_date, data, msg.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_passport_issued")
+    @prevent_double_click(timeout=3.0)
+    def back_to_passport_issued_handler(call):
+        """Возврат к вводу 'кем выдан'"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_number"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите, кем выдан паспорт:",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_passport_issued'
+        bot.register_next_step_handler(message, process_new_passport_issued_by, data, message.message_id)
 
     def process_new_passport_date(message, data, prev_message_id):
         """Обработка даты выдачи паспорта"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -1063,21 +1595,53 @@ def setup_registration_handlers(bot, user_temp_data):
         date_text = message.text.strip()
         
         if not re.match(r'^\d{2}\.\d{2}\.\d{4}$', date_text):
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_issued"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Неверный формат даты. Введите в формате ДД.ММ.ГГГГ:"
+                "❌ Неверный формат даты. Введите в формате ДД.ММ.ГГГГ:",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_passport_date'
             bot.register_next_step_handler(msg, process_new_passport_date, data, msg.message_id)
             return
         
         data['when_pasport'] = date_text
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите дату рождения (ДД.ММ.ГГГГ):")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_date"))
+        msg = bot.send_message(message.chat.id, "Введите дату рождения (ДД.ММ.ГГГГ):", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_birth_date'
         bot.register_next_step_handler(msg, process_birth_date, data, msg.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_passport_date")
+    @prevent_double_click(timeout=3.0)
+    def back_to_passport_date_handler(call):
+        """Возврат к вводу даты выдачи паспорта"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_issued"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите дату выдачи паспорта (ДД.ММ.ГГГГ):",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_passport_date'
+        bot.register_next_step_handler(message, process_new_passport_date, data, message.message_id)
 
     def process_birth_date(message, data, prev_message_id):
         """Обработка даты рождения"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -1087,21 +1651,53 @@ def setup_registration_handlers(bot, user_temp_data):
         date_text = message.text.strip()
         
         if not re.match(r'^\d{2}\.\d{2}\.\d{4}$', date_text):
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_date"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Неверный формат даты. Введите в формате ДД.ММ.ГГГГ:"
+                "❌ Неверный формат даты. Введите в формате ДД.ММ.ГГГГ:",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_birth_date'
             bot.register_next_step_handler(msg, process_birth_date, data, msg.message_id)
             return
         
         data['date_of_birth'] = date_text
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите город рождения:")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_birth_date"))
+        msg = bot.send_message(message.chat.id, "Введите город рождения:", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_birth_city'
         bot.register_next_step_handler(msg, process_birth_city, data, msg.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_birth_date")
+    @prevent_double_click(timeout=3.0)
+    def back_to_birth_date_handler(call):
+        """Возврат к вводу даты рождения"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_passport_date"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите дату рождения (ДД.ММ.ГГГГ):",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_birth_date'
+        bot.register_next_step_handler(message, process_birth_date, data, message.message_id)
 
     def process_birth_city(message, data, prev_message_id):
         """Обработка города рождения"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -1111,11 +1707,39 @@ def setup_registration_handlers(bot, user_temp_data):
         data['city_birth'] = message.text.strip()
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите адрес прописки:")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_birth_city"))
+        msg = bot.send_message(message.chat.id, "Введите адрес регистрации по паспорту:", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_address'
         bot.register_next_step_handler(msg, process_address, data, msg.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_birth_city")
+    @prevent_double_click(timeout=3.0)
+    def back_to_birth_city_handler(call):
+        """Возврат к вводу города рождения"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_birth_date"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите город рождения:",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_birth_city'
+        bot.register_next_step_handler(message, process_birth_city, data, message.message_id)
 
     def process_address(message, data, prev_message_id):
         """Обработка адреса прописки"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -1125,11 +1749,39 @@ def setup_registration_handlers(bot, user_temp_data):
         data['address'] = message.text.strip()
         user_temp_data[message.from_user.id] = data
         
-        msg = bot.send_message(message.chat.id, "Введите почтовый индекс:")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_address"))
+        msg = bot.send_message(message.chat.id, "Введите почтовый индекс:", reply_markup=keyboard)
+        active_handlers[message.chat.id] = 'waiting_postal_index'
         bot.register_next_step_handler(msg, process_postal_index, data, msg.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_address")
+    @prevent_double_click(timeout=3.0)
+    def back_to_address_handler(call):
+        """Возврат к вводу адреса"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+        
+        data = user_temp_data.get(user_id, {})
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_birth_city"))
+        
+        message = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите адрес регистрации по паспорту:",
+            reply_markup=keyboard
+        )
+        
+        active_handlers[call.message.chat.id] = 'waiting_address'
+        bot.register_next_step_handler(message, process_address, data, message.message_id)
 
     def process_postal_index(message, data, prev_message_id):
         """Обработка почтового индекса"""
+        user_id = message.from_user.id
+        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        
         try:
             bot.delete_message(message.chat.id, prev_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -1139,10 +1791,14 @@ def setup_registration_handlers(bot, user_temp_data):
         index = message.text.strip()
         
         if not index.isdigit() or len(index) != 6:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_address"))
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Почтовый индекс должен содержать 6 цифр. Попробуйте снова:"
+                "❌ Почтовый индекс должен содержать 6 цифр. Попробуйте снова:",
+                reply_markup=keyboard
             )
+            active_handlers[message.chat.id] = 'waiting_postal_index'
             bot.register_next_step_handler(msg, process_postal_index, data, msg.message_id)
             return
         
@@ -1179,6 +1835,7 @@ def setup_registration_handlers(bot, user_temp_data):
 
     # ========== ОБРАБОТЧИКИ РЕДАКТИРОВАНИЯ ПОЛЕЙ ==========
     @bot.callback_query_handler(func=lambda call: call.data == "edit_fio")
+    @prevent_double_click(timeout=3.0)
     def edit_fio_handler(call):
         """Редактирование ФИО"""
         user_id = call.from_user.id
@@ -1221,6 +1878,7 @@ def setup_registration_handlers(bot, user_temp_data):
         show_registration_summary(bot, message.chat.id, data)
 
     @bot.callback_query_handler(func=lambda call: call.data == "edit_phone")
+    @prevent_double_click(timeout=3.0)
     def edit_phone_handler(call):
         """Редактирование телефона"""
         user_id = call.from_user.id
@@ -1254,6 +1912,7 @@ def setup_registration_handlers(bot, user_temp_data):
         show_registration_summary(bot, message.chat.id, data)
 
     @bot.callback_query_handler(func=lambda call: call.data == "edit_city")
+    @prevent_double_click(timeout=3.0)
     def edit_city_handler(call):
         """Редактирование города"""
         user_id = call.from_user.id
@@ -1279,6 +1938,7 @@ def setup_registration_handlers(bot, user_temp_data):
         show_registration_summary(bot, message.chat.id, data)
 
     @bot.callback_query_handler(func=lambda call: call.data == "edit_birth_date")
+    @prevent_double_click(timeout=3.0)
     def edit_birth_date_handler(call):
         """Редактирование даты рождения"""
         user_id = call.from_user.id
@@ -1311,6 +1971,7 @@ def setup_registration_handlers(bot, user_temp_data):
         show_registration_summary(bot, message.chat.id, data)
 
     @bot.callback_query_handler(func=lambda call: call.data == "edit_birth_city")
+    @prevent_double_click(timeout=3.0)
     def edit_birth_city_handler(call):
         """Редактирование города рождения"""
         user_id = call.from_user.id
@@ -1336,6 +1997,7 @@ def setup_registration_handlers(bot, user_temp_data):
         show_registration_summary(bot, message.chat.id, data)
 
     @bot.callback_query_handler(func=lambda call: call.data == "edit_passport_series")
+    @prevent_double_click(timeout=3.0)
     def edit_passport_series_handler(call):
         """Редактирование серии паспорта"""
         user_id = call.from_user.id
@@ -1368,6 +2030,7 @@ def setup_registration_handlers(bot, user_temp_data):
         show_registration_summary(bot, message.chat.id, data)
 
     @bot.callback_query_handler(func=lambda call: call.data == "edit_passport_number")
+    @prevent_double_click(timeout=3.0)
     def edit_passport_number_handler(call):
         """Редактирование номера паспорта"""
         user_id = call.from_user.id
@@ -1400,6 +2063,7 @@ def setup_registration_handlers(bot, user_temp_data):
         show_registration_summary(bot, message.chat.id, data)
 
     @bot.callback_query_handler(func=lambda call: call.data == "edit_passport_issued")
+    @prevent_double_click(timeout=3.0)
     def edit_passport_issued_handler(call):
         """Редактирование 'кем выдан'"""
         user_id = call.from_user.id
@@ -1425,6 +2089,7 @@ def setup_registration_handlers(bot, user_temp_data):
         show_registration_summary(bot, message.chat.id, data)
 
     @bot.callback_query_handler(func=lambda call: call.data == "edit_passport_date")
+    @prevent_double_click(timeout=3.0)
     def edit_passport_date_handler(call):
         """Редактирование даты выдачи паспорта"""
         user_id = call.from_user.id
@@ -1457,6 +2122,7 @@ def setup_registration_handlers(bot, user_temp_data):
         show_registration_summary(bot, message.chat.id, data)
 
     @bot.callback_query_handler(func=lambda call: call.data == "edit_address")
+    @prevent_double_click(timeout=3.0)
     def edit_address_handler(call):
         """Редактирование адреса прописки"""
         user_id = call.from_user.id
@@ -1482,6 +2148,7 @@ def setup_registration_handlers(bot, user_temp_data):
         show_registration_summary(bot, message.chat.id, data)
 
     @bot.callback_query_handler(func=lambda call: call.data == "edit_postal")
+    @prevent_double_click(timeout=3.0)
     def edit_postal_handler(call):
         """Редактирование почтового индекса"""
         user_id = call.from_user.id
@@ -1513,6 +2180,7 @@ def setup_registration_handlers(bot, user_temp_data):
         user_temp_data[message.from_user.id] = data
         show_registration_summary(bot, message.chat.id, data)
     @bot.callback_query_handler(func=lambda call: call.data == "change_registration_data")
+    @prevent_double_click(timeout=3.0)
     def change_registration_data_handler(call):
         """Показ кнопок для изменения конкретных полей"""
         user_id = call.from_user.id
@@ -1539,6 +2207,7 @@ def setup_registration_handlers(bot, user_temp_data):
         )
 
     @bot.callback_query_handler(func=lambda call: call.data == "back_to_summary")
+    @prevent_double_click(timeout=3.0)
     def back_to_summary_handler(call):
         """Возврат к просмотру данных"""
         user_id = call.from_user.id
@@ -1547,6 +2216,7 @@ def setup_registration_handlers(bot, user_temp_data):
         bot.delete_message(call.message.chat.id, call.message.message_id)
         show_registration_summary(bot, call.message.chat.id, data)
     @bot.callback_query_handler(func=lambda call: call.data == "accept_registration_data")
+    @prevent_double_click(timeout=3.0)
     def accept_registration_data_handler(call):
         """Принятие данных и запрос фото паспорта"""
         user_id = call.from_user.id
@@ -1565,7 +2235,7 @@ def setup_registration_handlers(bot, user_temp_data):
         msg = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="✅ Данные приняты!\n\n🤖 Прикрепите фото 2-3 страницы паспорта:"
+            text="✅ Данные приняты!\n\n🤖 Прикрепите фото основного разворота паспорта (2-3 стр):"
         )
         
         bot.register_next_step_handler(msg, process_passport_photo_2_3, data, msg.message_id)
@@ -1601,7 +2271,7 @@ def setup_registration_handlers(bot, user_temp_data):
                 msg = bot.send_message(
                     message.chat.id, 
                     "❌ Неподдерживаемый формат файла. Отправьте фото или файл в формате JPG, PNG, PDF:\n\n"
-                    "Прикрепите фото 2-3 страницы паспорта:"
+                    "Прикрепите фото основного разворота паспорта (2-3 стр):"
                 )
                 bot.register_next_step_handler(msg, process_passport_photo_2_3, data, msg.message_id)
                 return
@@ -1624,7 +2294,7 @@ def setup_registration_handlers(bot, user_temp_data):
             bot.delete_message(message.chat.id, message.message_id)
             msg = bot.send_message(
                 message.chat.id, 
-                "❌ Пожалуйста, отправьте фото или файл. Прикрепите фото 2-3 страницы паспорта:"
+                "❌ Пожалуйста, отправьте фото или файл. Прикрепите фото основного разворота паспорта (2-3 стр):"
             )
             bot.register_next_step_handler(msg, process_passport_photo_2_3, data, msg.message_id)
             return
@@ -1656,7 +2326,7 @@ def setup_registration_handlers(bot, user_temp_data):
             
             msg = bot.send_message(
                 message.chat.id, 
-                "✅ Файл принято!\n\n🤖 Теперь прикрепите фото 4-5 страницы паспорта:"
+                "✅ Файл принят!\n\n🤖 Теперь прикрепите фото прописки паспорта (4-5 или 6-7 стр):"
             )
             bot.register_next_step_handler(msg, process_passport_photo_4_5, data, msg.message_id)
             
@@ -1667,7 +2337,7 @@ def setup_registration_handlers(bot, user_temp_data):
             msg = bot.send_message(
                 message.chat.id, 
                 "❌ Ошибка при загрузке файла. Попробуйте еще раз:\n\n"
-                "Прикрепите фото 2-3 страницы паспорта:"
+                "Прикрепите фото основного разворота паспорта (2-3 стр):"
             )
             bot.register_next_step_handler(msg, process_passport_photo_2_3, data, msg.message_id)
 
@@ -1702,7 +2372,7 @@ def setup_registration_handlers(bot, user_temp_data):
                 msg = bot.send_message(
                     message.chat.id, 
                     "❌ Неподдерживаемый формат файла. Отправьте фото или файл в формате JPG, PNG, PDF:\n\n"
-                    "Прикрепите фото 4-5 страницы паспорта:"
+                    "Теперь прикрепите фото прописки паспорта (4-5 или 6-7 стр):"
                 )
                 bot.register_next_step_handler(msg, process_passport_photo_4_5, data, msg.message_id)
                 return
@@ -1725,7 +2395,7 @@ def setup_registration_handlers(bot, user_temp_data):
             bot.delete_message(message.chat.id, message.message_id)
             msg = bot.send_message(
                 message.chat.id, 
-                "❌ Пожалуйста, отправьте фото или файл. Прикрепите фото 4-5 страницы паспорта:"
+                "❌ Пожалуйста, отправьте фото или файл. Теперь прикрепите фото прописки паспорта (4-5 или 6-7 стр):"
             )
             bot.register_next_step_handler(msg, process_passport_photo_4_5, data, msg.message_id)
             return
@@ -1778,7 +2448,7 @@ def setup_registration_handlers(bot, user_temp_data):
             msg = bot.send_message(
                 message.chat.id, 
                 "❌ Ошибка при загрузке файла. Попробуйте еще раз:\n\n"
-                "Прикрепите фото 4-5 страницы паспорта:"
+                "Теперь прикрепите фото прописки паспорта (4-5 или 6-7 стр):"
             )
             bot.register_next_step_handler(msg, process_passport_photo_4_5, data, msg.message_id)
 
@@ -1819,6 +2489,7 @@ def setup_registration_handlers(bot, user_temp_data):
     
     
     @bot.callback_query_handler(func=lambda call: call.data in ["consent_self_registration_yes", "consent_self_registration_no"])
+    @prevent_double_click(timeout=3.0)
     def handle_self_registration_consent(call):
         """Обработка согласия при самостоятельной регистрации"""
         user_id = call.from_user.id
@@ -1889,6 +2560,7 @@ def setup_registration_handlers(bot, user_temp_data):
     
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_reg_"))
+    @prevent_double_click(timeout=3.0)
     def approve_registration(call):
         """Подтверждение регистрации администратором"""
         user_id_to_approve = int(call.data.replace("approve_reg_", ""))
@@ -1944,6 +2616,7 @@ def setup_registration_handlers(bot, user_temp_data):
     
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("reject_reg_"))
+    @prevent_double_click(timeout=3.0)
     def reject_registration(call):
         """Отклонение регистрации администратором"""
         user_id_to_reject = int(call.data.replace("reject_reg_", ""))

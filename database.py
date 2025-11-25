@@ -6,8 +6,8 @@ import os
 from contextlib import contextmanager
 import time
 import random
-
-
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 class DatabaseManager:
     def __init__(self, connection_params=None):
         """Инициализация базы данных PostgreSQL"""
@@ -19,7 +19,7 @@ class DatabaseManager:
                 'database': os.getenv('DB_NAME', 'clients_db'),
                 'user': os.getenv('DB_USER', 'postgres'),
                 'password': os.getenv('DB_PASSWORD', '1234'),
-                'client_encoding': 'UTF8'  
+                'client_encoding': 'UTF8'  # Добавьте эту строку
             }
         else:
             self.connection_params = connection_params
@@ -51,11 +51,25 @@ class DatabaseManager:
                 with conn.cursor() as cursor:
                     cursor.execute('''
                         CREATE SEQUENCE IF NOT EXISTS client_id_seq 
-                        START WITH 70001 
+                        START WITH 70044 
                         INCREMENT BY 1 
                         NO MAXVALUE 
                         NO CYCLE
                         ''')
+                    cursor.execute('''
+                        CREATE SEQUENCE IF NOT EXISTS client_id_seq_24
+                        START WITH 24001 
+                        INCREMENT BY 1 
+                        NO MAXVALUE 
+                        NO CYCLE
+                        ''')
+                    cursor.execute('''
+                        CREATE SEQUENCE IF NOT EXISTS client_id_seq_54
+                        START WITH 54001 
+                        INCREMENT BY 1 
+                        NO MAXVALUE 
+                        NO CYCLE
+                    ''')
                     cursor.execute('''
                     CREATE TABLE IF NOT EXISTS clients (
                         id SERIAL PRIMARY KEY,
@@ -79,6 +93,7 @@ class DatabaseManager:
                         car_number TEXT,
                         year_auto TEXT,
                         docs TEXT,
+                        dkp TEXT,
                         seria_docs TEXT,
                         number_docs TEXT,
                         data_docs TEXT,
@@ -89,6 +104,8 @@ class DatabaseManager:
                         fio_culp TEXT,
                         marks_culp TEXT,
                         number_auto_culp TEXT,
+                        number_photo TEXT,
+                        place TEXT,
                         bank TEXT,
                         bank_account TEXT,
                         bank_account_corr TEXT,
@@ -146,6 +163,7 @@ class DatabaseManager:
                         date_isk TEXT,
                         dop_osm TEXT,
                         ev TEXT,
+                        address_park TEXT,
                         fio_k TEXT,
                         data_dop_osm TEXT,
                         "viborRem" TEXT,
@@ -186,7 +204,8 @@ class DatabaseManager:
                         number_c TEXT,
                         money_exp TEXT,
                         user_id TEXT,
-                        ur_money TEXT
+                        ur_money TEXT,
+                        calculation TEXT
                     )
                     ''')
                     cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_id TEXT')
@@ -281,7 +300,20 @@ class DatabaseManager:
                         )
                     ''')
                     cursor.execute('CREATE INDEX IF NOT EXISTS idx_pending_approvals_status ON pending_approvals(status)')
+                    cursor.execute('''
+                        ALTER TABLE pending_approvals 
+                        ADD COLUMN IF NOT EXISTS rejection_reason TEXT
+                    ''')
 
+                    cursor.execute('''
+                        ALTER TABLE pending_approvals 
+                        ADD COLUMN IF NOT EXISTS receipt_number TEXT
+                    ''')
+
+                    cursor.execute('''
+                        ALTER TABLE pending_approvals 
+                        ADD COLUMN IF NOT EXISTS receipt_uploaded_at TIMESTAMP
+                    ''')
                     cursor.execute('''
                         CREATE TABLE IF NOT EXISTS agent_finances (
                             id SERIAL PRIMARY KEY,
@@ -438,28 +470,40 @@ class DatabaseManager:
         except Exception as e:
             print(f"Ошибка получения статистики агента: {e}")
             return {'direct_contracts': 0, 'first_invited_contracts': 0, 'all_invited_contracts': 0, 'total_credited': 0}
-    def generate_next_client_id(self):
-        """Генерация следующего client_id с использованием последовательности PostgreSQL"""
+    def generate_next_client_id(self, city_prefix="70"):
+        """Генерация следующего client_id с префиксом города"""
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
+                    # Определяем имя последовательности по префиксу
+                    if city_prefix == "70":
+                        seq_name = "client_id_seq"
+                    elif city_prefix == "24":
+                        seq_name = "client_id_seq_24"
+                    elif city_prefix == "54":
+                        seq_name = "client_id_seq_54"
+                    else:
+                        seq_name = "client_id_seq"  # По умолчанию Томск
+                    
                     # Проверяем текущее значение последовательности
-                    cursor.execute("SELECT last_value FROM client_id_seq")
+                    cursor.execute(f"SELECT last_value FROM {seq_name}")
                     seq_value = cursor.fetchone()[0]
                     
                     # Если это первый запуск, синхронизируем с существующими данными
-                    if seq_value == 1:  # Начальное значение при первом создании
-                        cursor.execute('''
-                        SELECT COALESCE(MAX(CAST(client_id AS INTEGER)), 70000) 
+                    min_value = int(city_prefix) * 1000 + 1
+                    if seq_value == 1:
+                        cursor.execute(f'''
+                        SELECT COALESCE(MAX(CAST(client_id AS INTEGER)), {min_value - 1}) 
                         FROM clients 
-                        WHERE client_id ~ '^[0-9]+$' AND CAST(client_id AS INTEGER) >= 70000
+                        WHERE client_id ~ '^[0-9]+$' 
+                        AND client_id LIKE '{city_prefix}%'
                         ''')
                         max_existing = cursor.fetchone()[0]
-                        if max_existing >= 70001:
-                            cursor.execute(f"SELECT setval('client_id_seq', {max_existing + 1})")
+                        if max_existing >= min_value:
+                            cursor.execute(f"SELECT setval('{seq_name}', {max_existing + 1})")
                     
                     # Получаем следующий ID атомарно
-                    cursor.execute("SELECT nextval('client_id_seq')")
+                    cursor.execute(f"SELECT nextval('{seq_name}')")
                     next_id = cursor.fetchone()[0]
                     
                     return str(next_id)
@@ -509,7 +553,8 @@ class DatabaseManager:
                             existing_data = {}
                         
                         # Объединяем существующие данные с новыми (новые имеют приоритет)
-                        merged_data = {**existing_data, **data}
+                        existing_data_clean = {k: v for k, v in existing_data.items() if k != 'data_json'}
+                        merged_data = {**existing_data_clean, **data}
                         merged_data['client_id'] = existing_client['client_id'] # Сохраняем существующий client_id
                         
                         print(f"Обновляем существующего клиента с fio: {existing_fio}")
@@ -531,9 +576,9 @@ class DatabaseManager:
                             accident=%s, client_id=%s, fio=%s, seria_pasport=%s, number_pasport=%s, where_pasport=%s, when_pasport=%s,
                             address=%s, index_postal=%s, number=%s, date_of_birth=%s, city_birth=%s,
                             date_dtp=%s, time_dtp=%s, address_dtp=%s, who_dtp=%s, marks=%s, car_number=%s,
-                            year_auto=%s, docs=%s, seria_docs=%s, number_docs=%s, data_docs=%s,
+                            year_auto=%s, docs=%s, dkp=%s, seria_docs=%s, number_docs=%s, data_docs=%s,
                             insurance=%s, seria_insurance=%s, number_insurance=%s, date_insurance=%s,
-                            fio_culp=%s, marks_culp=%s, number_auto_culp=%s,
+                            fio_culp=%s, marks_culp=%s, number_auto_culp=%s, number_photo=%s, place=%s,
                             bank=%s, bank_account=%s, bank_account_corr=%s, "BIK"=%s, "INN"=%s,
                             created_at=%s, data_json=%s, sobstvenik=%s, fio_sobs=%s, date_of_birth_sobs=%s, answer_ins=%s, analis_ins=%s,
                             vibor=%s, vibor1=%s, "Nv_ins"=%s, date_coin_ins=%s, "Na_ins"=%s, "date_Na_ins"=%s, date_exp=%s, org_exp=%s, coin_exp=%s, 
@@ -541,11 +586,11 @@ class DatabaseManager:
                             "N_dov_not"=%s, data_dov_not=%s, fio_not=%s, number_not=%s, date_ins=%s, date_pret=%s, pret=%s, ombuc=%s,data_pret_prin=%s,
                             data_pret_otv=%s,"N_pret_prin"=%s, date_ombuc=%s,date_ins_pod=%s, seria_vu_culp=%s, number_vu_culp=%s,data_vu_culp=%s, date_of_birth_culp=%s,
                             index_culp=%s,address_culp=%s,number_culp=%s, "N_viplat_work"=%s, date_viplat_work=%s, "N_plat_por"=%s, date_plat_por=%s, sud=%s, gos_money=%s,
-                            date_izvesh_dtp=%s, date_isk=%s, dop_osm=%s, ev=%s, fio_k=%s, data_dop_osm=%s, "viborRem"=%s, date_zayav_sto=%s, pret_sto=%s, data_otkaz_sto=%s,date_napr_sto=%s,
+                            date_izvesh_dtp=%s, date_isk=%s, dop_osm=%s, ev=%s, address_park=%s, fio_k=%s, data_dop_osm=%s, "viborRem"=%s, date_zayav_sto=%s, pret_sto=%s, data_otkaz_sto=%s,date_napr_sto=%s,
                             address_sto_main=%s, data_sto_main=%s, time_sto_main=%s, city_sto=%s, "Done"=%s, city=%s, year=%s, street=%s, "N_gui"=%s, date_gui=%s, "N_prot"=%s, date_prot=%s,
                             date_road=%s, "N_kv_not"=%s, date_kv_not=%s, "N_kv_ur"=%s, date_kv_ur=%s, "N_kv_exp"=%s, status=%s, fio_c=%s, fio_c_k=%s, seria_pasport_c=%s,number_pasport_c=%s,
                             where_pasport_c=%s, when_pasport_c=%s, address_c=%s, date_of_birth_c=%s, coin_c=%s, city_birth_c=%s, index_postal_c=%s, number_c=%s, money_exp=%s, user_id = %s,
-                            agent_id=%s, ur_money=%s
+                            agent_id=%s, ur_money=%s, calculation=%s
                         WHERE client_id=%s
                         '''
                         
@@ -569,6 +614,34 @@ class DatabaseManager:
         except Exception as e:
             print(f"Ошибка сохранения клиента: {e}")
             raise e
+    def get_city_prefix(self, user_id):
+        """Получить префикс client_id на основе города клиента"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT city_admin FROM admins WHERE user_id = %s::text",
+                        (user_id,)
+                    )
+                    result = cursor.fetchone()
+                    
+                    if result and result[0]:
+                        city = result[0].strip()
+                        
+                        # Определяем префикс по городу
+                        if city == "Томск":
+                            return "70"
+                        elif city == "Красноярск":
+                            return "24"
+                        elif city == "Новосибирск":
+                            return "54"
+                        else:
+                            return "70"  # По умолчанию Томск
+                    else:
+                        return "70"  # По умолчанию если город не найден
+        except Exception as e:
+            print(f"Ошибка получения города: {e}")
+            return "70"  # По умолчанию при ошибке
     def save_client_data_with_generated_id_new(self, data, max_retries=3):
         """Генерирует client_id, добавляет в data и сохраняет в базу ИЛИ обновляет существующего клиента"""
         for attempt in range(max_retries):
@@ -587,10 +660,14 @@ class DatabaseManager:
                         # Клиент не существует - создаем нового
                         print("Создаем нового клиента")
                         
-                        # 1. Генерируем client_id
-                        client_id = self.generate_next_client_id()
-                        
-                        # 2. Добавляем client_id в данные
+                        # 1. Получаем город клиента для определения префикса
+                        client_user_id = data.get('user_id')
+                        city_prefix = self.get_city_prefix(client_user_id)
+
+                        # 2. Генерируем client_id с префиксом города
+                        client_id = self.generate_next_client_id(city_prefix)
+
+                        # 3. Добавляем client_id в данные
                         data['client_id'] = client_id
                         client_user_id = data.get('user_id')
                         client_user_id = data.get('user_id')
@@ -616,9 +693,9 @@ class DatabaseManager:
                             accident, client_id, fio, seria_pasport, number_pasport, where_pasport, 
                             when_pasport, address , index_postal, number , date_of_birth , city_birth ,
                             date_dtp , time_dtp , address_dtp , who_dtp , marks , car_number ,
-                            year_auto , docs , seria_docs , number_docs , data_docs ,insurance , 
+                            year_auto , docs , dkp , seria_docs , number_docs , data_docs ,insurance , 
                             seria_insurance , number_insurance , date_insurance ,fio_culp , marks_culp , number_auto_culp ,
-                            bank , bank_account , bank_account_corr , "BIK" , "INN" , created_at,
+                            bank , bank_account , bank_account_corr , number_photo , place , "BIK" , "INN" , created_at,
                             data_json , sobstvenik , fio_sobs , date_of_birth_sobs , answer_ins , analis_ins ,
                             vibor , vibor1 , "Nv_ins" , date_coin_ins , "Na_ins" , "date_Na_ins" , 
                             date_exp , org_exp , coin_exp , date_sto , time_sto , address_sto , 
@@ -627,19 +704,20 @@ class DatabaseManager:
                             data_pret_otv, "N_pret_prin", date_ombuc, date_ins_pod, seria_vu_culp ,number_vu_culp ,
                             data_vu_culp , date_of_birth_culp , index_culp ,address_culp ,number_culp , "N_viplat_work" ,
                             date_viplat_work , "N_plat_por" ,date_plat_por ,sud ,gos_money ,date_izvesh_dtp ,
-                            date_isk, dop_osm, ev, fio_k, data_dop_osm, "viborRem", 
+                            date_isk, dop_osm, ev, address_park , fio_k, data_dop_osm, "viborRem", 
                             date_zayav_sto, pret_sto, data_otkaz_sto, date_napr_sto, address_sto_main, data_sto_main,
                             time_sto_main, city_sto, "Done", city, year, street, 
                             "N_gui", date_gui, "N_prot", date_prot, date_road, "N_kv_not", 
                             date_kv_not, "N_kv_ur", date_kv_ur, "N_kv_exp", status, fio_c,
                             fio_c_k, seria_pasport_c,number_pasport_c, where_pasport_c, when_pasport_c, address_c, 
-                            date_of_birth_c, coin_c, city_birth_c, index_postal_c, number_c, money_exp, user_id, agent_id, ur_money 
+                            date_of_birth_c, coin_c, city_birth_c, index_postal_c, number_c, money_exp, user_id, agent_id, ur_money, calculation 
                         ) VALUES (  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                    %s, %s
                                     )
                         ON CONFLICT (client_id) DO NOTHING
                         RETURNING id
@@ -771,6 +849,7 @@ class DatabaseManager:
                 'car_number': data.get('car_number', ''),
                 'year_auto': data.get('year_auto', ''),
                 'docs': data.get('docs', ''),
+                'dkp': data.get('dkp', ''),
                 'seria_docs': data.get('seria_docs', ''),
                 'number_docs': data.get('number_docs', ''),
                 'data_docs': data.get('data_docs', ''),
@@ -781,6 +860,8 @@ class DatabaseManager:
                 'fio_culp': data.get('fio_culp', ''),
                 'marks_culp': data.get('marks_culp', ''),
                 'number_auto_culp': data.get('number_auto_culp', ''),
+                'number_photo': data.get('number_photo', ''),
+                'place': data.get('place', ''),
                 'bank': data.get('bank', ''),
                 'bank_account': data.get('bank_account', ''),
                 'bank_account_corr': data.get('bank_account_corr', ''),
@@ -838,6 +919,7 @@ class DatabaseManager:
                 'date_isk': data.get('date_isk', ''),
                 'dop_osm': data.get('dop_osm', ''),
                 'ev': data.get('ev', ''),
+                'address_park': data.get('address_park', ''),
                 'fio_k':data.get('fio_k', ''),
                 'data_dop_osm': data.get('data_dop_osm', ''),
                 'viborRem': data.get('viborRem', ''),
@@ -880,6 +962,7 @@ class DatabaseManager:
                 'user_id': data.get('user_id', ''),
                 'agent_id': data.get('agent_id', ''),
                 'ur_money': data.get('ur_money', ''),
+                'calculation': data.get('calculation', ''),
         }
         print(f"DEBUG: Количество полей в _prepare_client_data: {len(result)}")
         return result
@@ -1233,18 +1316,38 @@ class DatabaseManager:
                     
                     print(f"Поиск по ФИО: '{search_term}'")
                     
-                    # 1. Точное совпадение
-                    exact_patterns = [
-                        search_term,
-                        search_term.lower(),
-                        search_term.upper(),
-                        search_term.title()
-                    ]
+                    # Функция для замены ё на е и наоборот
+                    def get_e_yo_variants(text):
+                        variants = set()
+                        variants.add(text)  # оригинал
+                        
+                        # Замена ё на е
+                        if 'ё' in text.lower():
+                            variants.add(text.replace('ё', 'е').replace('Ё', 'Е'))
+                        
+                        # Замена е на ё (только в позициях где может быть ё)
+                        if 'е' in text.lower():
+                            # Простая замена всех е на ё
+                            variants.add(text.replace('е', 'ё').replace('Е', 'Ё'))
+                        
+                        return list(variants)
+                    
+                    # Генерируем варианты с учетом ё/е для поискового термина
+                    search_variants = get_e_yo_variants(search_term)
+                    print(f"Варианты поиска с ё/е: {search_variants}")
+                    
+                    # 1. Точное совпадение (с учетом ё/е)
+                    exact_patterns = set()
+                    for variant in search_variants:
+                        exact_patterns.add(variant)
+                        exact_patterns.add(variant.lower())
+                        exact_patterns.add(variant.upper())
+                        exact_patterns.add(variant.title())
                     
                     for pattern in exact_patterns:
                         query = '''
                         SELECT id, client_id, fio, number, car_number, date_dtp, created_at, 
-                               COALESCE(data_json, '{}') as data_json
+                            COALESCE(data_json, '{}') as data_json
                         FROM clients 
                         WHERE fio = %s
                         ORDER BY id DESC
@@ -1254,22 +1357,21 @@ class DatabaseManager:
                         exact_results = cursor.fetchall()
                         if exact_results:
                             results.extend(exact_results)
-                            print(f"Найдено точных совпадений: {len(exact_results)}")
-                            break
+                            print(f"Найдено точных совпадений для '{pattern}': {len(exact_results)}")
                     
-                    # 2. Частичное совпадение
+                    # 2. Частичное совпадение (с учетом ё/е)
                     if not results:
-                        partial_patterns = [
-                            f"%{search_term}%",
-                            f"%{search_term.lower()}%", 
-                            f"%{search_term.upper()}%",
-                            f"%{search_term.title()}%"
-                        ]
+                        partial_patterns = set()
+                        for variant in search_variants:
+                            partial_patterns.add(f"%{variant}%")
+                            partial_patterns.add(f"%{variant.lower()}%")
+                            partial_patterns.add(f"%{variant.upper()}%")
+                            partial_patterns.add(f"%{variant.title()}%")
                         
                         for pattern in partial_patterns:
                             query = '''
                             SELECT id, client_id, fio, number, car_number, date_dtp, created_at, 
-                                   COALESCE(data_json, '{}') as data_json
+                                COALESCE(data_json, '{}') as data_json
                             FROM clients 
                             WHERE fio ILIKE %s
                             ORDER BY id DESC
@@ -1279,78 +1381,71 @@ class DatabaseManager:
                             partial_results = cursor.fetchall()
                             if partial_results:
                                 results.extend(partial_results)
-                                print(f"Найдено частичных совпадений: {len(partial_results)}")
-                                break
+                                print(f"Найдено частичных совпадений для '{pattern}': {len(partial_results)}")
                     
-                    # 3. Поиск по отдельным словам
+                    # 3. Поиск по отдельным словам (с учетом ё/е)
                     if not results:
                         search_words = search_term.split()
                         if len(search_words) >= 2:
                             first_word = search_words[0].strip()
                             second_word = search_words[1].strip()
                             
-                            # Различные варианты регистра для каждого слова
-                            word_variants = []
-                            for word in [first_word, second_word]:
-                                word_variants.append([
-                                    word,
-                                    word.lower(),
-                                    word.upper(),
-                                    word.title()
-                                ])
+                            # Варианты с ё/е для каждого слова
+                            first_word_variants = get_e_yo_variants(first_word)
+                            second_word_variants = get_e_yo_variants(second_word)
                             
                             # Пробуем все комбинации
-                            for first_variants in word_variants[0]:
-                                for second_variants in word_variants[1]:
-                                    query = '''
-                                    SELECT id, client_id, fio, number, car_number, date_dtp, created_at, 
-                                           COALESCE(data_json, '{}') as data_json
-                                    FROM clients 
-                                    WHERE fio ILIKE %s AND fio ILIKE %s
-                                    ORDER BY id DESC
-                                    '''
-                                    
-                                    cursor.execute(query, (f"%{first_variants}%", f"%{second_variants}%"))
-                                    word_results = cursor.fetchall()
-                                    if word_results:
-                                        results.extend(word_results)
-                                        print(f"Найдено по словам '{first_variants}' + '{second_variants}': {len(word_results)}")
-                                        break
+                            for first_variant in first_word_variants:
+                                for second_variant in second_word_variants:
+                                    # Различные варианты регистра
+                                    for first_case in [first_variant, first_variant.lower(), first_variant.upper(), first_variant.title()]:
+                                        for second_case in [second_variant, second_variant.lower(), second_variant.upper(), second_variant.title()]:
+                                            query = '''
+                                            SELECT id, client_id, fio, number, car_number, date_dtp, created_at, 
+                                                COALESCE(data_json, '{}') as data_json
+                                            FROM clients 
+                                            WHERE fio ILIKE %s AND fio ILIKE %s
+                                            ORDER BY id DESC
+                                            '''
+                                            
+                                            cursor.execute(query, (f"%{first_case}%", f"%{second_case}%"))
+                                            word_results = cursor.fetchall()
+                                            if word_results:
+                                                results.extend(word_results)
+                                                print(f"Найдено по словам '{first_case}' + '{second_case}': {len(word_results)}")
+                                                break
                                 
                                 if results:
                                     break
                     
-                    # 4. Поиск только по первому слову (фамилии)
+                    # 4. Поиск только по первому слову (фамилии) с учетом ё/е
                     if not results:
                         first_word = search_term.split()[0] if search_term.split() else search_term
-                        first_word_variants = [
-                            first_word,
-                            first_word.lower(),
-                            first_word.upper(),
-                            first_word.title()
-                        ]
+                        first_word_variants = get_e_yo_variants(first_word)
                         
                         for variant in first_word_variants:
-                            query = '''
-                            SELECT id, client_id, fio, number, car_number, date_dtp, created_at, 
-                                   COALESCE(data_json, '{}') as data_json
-                            FROM clients 
-                            WHERE fio ILIKE %s
-                            ORDER BY id DESC
-                            '''
-                            
-                            cursor.execute(query, (f"%{variant}%",))
-                            surname_results = cursor.fetchall()
-                            if surname_results:
-                                results.extend(surname_results)
-                                print(f"Найдено по фамилии '{variant}': {len(surname_results)}")
-                                break
+                            # Различные варианты регистра
+                            for case_variant in [variant, variant.lower(), variant.upper(), variant.title()]:
+                                query = '''
+                                SELECT id, client_id, fio, number, car_number, date_dtp, created_at, 
+                                    COALESCE(data_json, '{}') as data_json
+                                FROM clients 
+                                WHERE fio ILIKE %s
+                                ORDER BY id DESC
+                                '''
+                                
+                                cursor.execute(query, (f"%{case_variant}%",))
+                                surname_results = cursor.fetchall()
+                                if surname_results:
+                                    results.extend(surname_results)
+                                    print(f"Найдено по фамилии '{case_variant}': {len(surname_results)}")
+                                    break
                     
-                    # 5. Полнотекстовый поиск по русскому языку
+                    # 5. Полнотекстовый поиск по русскому языку (PostgreSQL сам обрабатывает ё/е)
                     if not results:
                         query = '''
                         SELECT id, client_id, fio, number, car_number, date_dtp, created_at, 
-                               COALESCE(data_json, '{}') as data_json
+                            COALESCE(data_json, '{}') as data_json
                         FROM clients 
                         WHERE to_tsvector('russian', fio) @@ plainto_tsquery('russian', %s)
                         ORDER BY ts_rank(to_tsvector('russian', fio), plainto_tsquery('russian', %s)) DESC
@@ -1653,6 +1748,28 @@ class DatabaseManager:
         except Exception as e:
             print(f"Ошибка получения данных администратора: {e}")
             return None
+    def get_admin_by_fio(self, fio):
+        """Получение данных администратора по user_id"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute("""
+                        SELECT id, user_id, fio, fio_k, seria_pasport, number_pasport, 
+                            where_pasport, when_pasport, date_of_birth, city_birth,
+                            address, index_postal, admin_value, city_admin, number,
+                            created_at, is_active, invited_by_user_id, invited_by_type
+                        FROM admins 
+                        WHERE fio = %s::text AND is_active = true
+                    """, (fio,))
+                    
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        return dict(result)
+                    return None
+        except Exception as e:
+            print(f"Ошибка получения данных администратора: {e}")
+            return None
     def export_admins_to_excel(self, file_path, city_filter=None):
         """Экспорт данных администраторов в Excel файл с количеством клиентов"""
         try:
@@ -1664,14 +1781,14 @@ class DatabaseManager:
                         query = """
                         SELECT a.user_id, a.fio, a.seria_pasport, a.number_pasport, 
                             a.where_pasport, a.when_pasport, a.admin_value, a.city_admin, 
-                            a.created_at, a.is_active,
+                            a.created_at, a.is_active, a.date_of_birth, a.number,
                             COUNT(c.client_id) as client_count
                         FROM admins a
                         LEFT JOIN clients c ON a.user_id::text = c.user_id
                         WHERE a.city_admin = %s AND a.is_active = true AND a.admin_value != 'Клиент'
                         GROUP BY a.user_id, a.fio, a.seria_pasport, a.number_pasport, 
                                 a.where_pasport, a.when_pasport, a.admin_value, a.city_admin, 
-                                a.created_at, a.is_active
+                                a.created_at, a.is_active, a.date_of_birth, a.number
                         ORDER BY a.created_at DESC
                         """
                         cursor.execute(query, (city_filter,))
@@ -1679,14 +1796,14 @@ class DatabaseManager:
                         query = """
                         SELECT a.user_id, a.fio, a.seria_pasport, a.number_pasport, 
                             a.where_pasport, a.when_pasport, a.admin_value, a.city_admin, 
-                            a.created_at, a.is_active,
+                            a.created_at, a.is_active, a.date_of_birth, a.number
                             COUNT(c.client_id) as client_count
                         FROM admins a
                         LEFT JOIN clients c ON a.user_id::text = c.user_id
                         WHERE a.is_active = true AND a.admin_value != 'Клиент'
                         GROUP BY a.user_id, a.fio, a.seria_pasport, a.number_pasport, 
                                 a.where_pasport, a.when_pasport, a.admin_value, a.city_admin, 
-                                a.created_at, a.is_active
+                                a.created_at, a.is_active, a.date_of_birth, a.number
                         ORDER BY a.created_at DESC
                         """
                         cursor.execute(query)
@@ -1702,23 +1819,43 @@ class DatabaseManager:
                     
                     # Переименовываем колонки для читаемости
                     column_mapping = {
-                        'user_id': 'ID пользователя',
+                        'admin_value': 'Должность',
                         'fio': 'ФИО',
-                        'seria_pasport': 'Серия паспорта',
-                        'number_pasport': 'Номер паспорта',
-                        'where_pasport': 'Кем выдан',
-                        'when_pasport': 'Когда выдан',
-                        'admin_value': 'Роль',
+                        'date_of_birth': 'Дата рождения',
                         'city_admin': 'Город',
-                        'created_at': 'Дата создания',
-                        'is_active': 'Активен',
-                        'client_count': 'Количество оформленных договоров'
+                        'number': 'Номер телефона',
+                        'client_count': 'Количество обработанных договоров'
                     }
                     
                     df = df.rename(columns=column_mapping)
                     
                     # Экспортируем в Excel
                     df.to_excel(file_path, index=False, engine='openpyxl')
+                    
+                    workbook = load_workbook(file_path)
+                    worksheet = workbook.active
+                    
+                    # Автоподбор ширины для каждого столбца
+                    for column in worksheet.columns:
+                        max_length = 0
+                        column_letter = get_column_letter(column[0].column)
+                        
+                        for cell in column:
+                            try:
+                                # Получаем длину текста в ячейке
+                                if cell.value:
+                                    cell_length = len(str(cell.value))
+                                    if cell_length > max_length:
+                                        max_length = cell_length
+                            except:
+                                pass
+                        
+                        # Устанавливаем ширину столбца с запасом
+                        adjusted_width = min(max_length + 2, 50)  # Максимальная ширина 50
+                        worksheet.column_dimensions[column_letter].width = adjusted_width
+                    
+                    # Сохраняем изменения
+                    workbook.save(file_path)
                     
                     print(f"Экспорт {len(admins)} администраторов завершен: {file_path}")
                     return True
@@ -1820,6 +1957,10 @@ def get_admin_from_db_by_user_id(user_id, connection_params=None):
     """Получение данных администратора по user_id"""
     db = DatabaseManager(connection_params)
     return db.get_admin_by_user_id(user_id)
+def get_admin_from_db_by_fio(fio, connection_params=None):
+    """Получение данных администратора по user_id"""
+    db = DatabaseManager(connection_params)
+    return db.get_admin_by_fio(fio)
 def export_all_admins_to_excel(file_path, connection_params=None):
     """Экспорт всех администраторов в Excel"""
     db = DatabaseManager(connection_params)
@@ -1945,7 +2086,7 @@ def migrate_from_sqlite_to_postgresql(sqlite_path, postgres_params):
     return migration.migrate_from_sqlite()
 
 def search_my_clients_by_fio_in_db(search_term, user_id, connection_params=None):
-    """Поиск клиентов по ФИО только для конкретного пользователя"""
+    """Поиск клиентов по ФИО только для конкретного пользователя с учетом ё/е"""
     try:
         db = DatabaseManager(connection_params)
         with db.get_connection() as conn:
@@ -1955,13 +2096,32 @@ def search_my_clients_by_fio_in_db(search_term, user_id, connection_params=None)
                 
                 print(f"Поиск своих клиентов по ФИО: '{search_term}', user_id: {user_id}")
                 
-                # 1. Точное совпадение
-                exact_patterns = [
-                    search_term,
-                    search_term.lower(),
-                    search_term.upper(),
-                    search_term.title()
-                ]
+                # Функция для замены ё на е и наоборот
+                def get_e_yo_variants(text):
+                    variants = set()
+                    variants.add(text)  # оригинал
+                    
+                    # Замена ё на е
+                    if 'ё' in text.lower():
+                        variants.add(text.replace('ё', 'е').replace('Ё', 'Е'))
+                    
+                    # Замена е на ё
+                    if 'е' in text.lower():
+                        variants.add(text.replace('е', 'ё').replace('Е', 'Ё'))
+                    
+                    return list(variants)
+                
+                # Генерируем варианты с учетом ё/е для поискового термина
+                search_variants = get_e_yo_variants(search_term)
+                print(f"Варианты поиска с ё/е: {search_variants}")
+                
+                # 1. Точное совпадение (с учетом ё/е)
+                exact_patterns = set()
+                for variant in search_variants:
+                    exact_patterns.add(variant)
+                    exact_patterns.add(variant.lower())
+                    exact_patterns.add(variant.upper())
+                    exact_patterns.add(variant.title())
                 
                 for pattern in exact_patterns:
                     query = '''
@@ -1976,17 +2136,16 @@ def search_my_clients_by_fio_in_db(search_term, user_id, connection_params=None)
                     exact_results = cursor.fetchall()
                     if exact_results:
                         results.extend(exact_results)
-                        print(f"Найдено точных совпадений: {len(exact_results)}")
-                        break
+                        print(f"Найдено точных совпадений для '{pattern}': {len(exact_results)}")
                 
-                # 2. Частичное совпадение
+                # 2. Частичное совпадение (с учетом ё/е)
                 if not results:
-                    partial_patterns = [
-                        f"%{search_term}%",
-                        f"%{search_term.lower()}%", 
-                        f"%{search_term.upper()}%",
-                        f"%{search_term.title()}%"
-                    ]
+                    partial_patterns = set()
+                    for variant in search_variants:
+                        partial_patterns.add(f"%{variant}%")
+                        partial_patterns.add(f"%{variant.lower()}%")
+                        partial_patterns.add(f"%{variant.upper()}%")
+                        partial_patterns.add(f"%{variant.title()}%")
                     
                     for pattern in partial_patterns:
                         query = '''
@@ -2004,43 +2163,64 @@ def search_my_clients_by_fio_in_db(search_term, user_id, connection_params=None)
                         print(f"DEBUG SEARCH: found {len(partial_results)} results")
                         if partial_results:
                             results.extend(partial_results)
-                            print(f"Найдено частичных совпадений: {len(partial_results)}")
-                            break
+                            print(f"Найдено частичных совпадений для '{pattern}': {len(partial_results)}")
                 
-                # 3. Поиск по отдельным словам
+                # 3. Поиск по отдельным словам (с учетом ё/е)
                 if not results:
                     search_words = search_term.split()
                     if len(search_words) >= 2:
                         first_word = search_words[0].strip()
                         second_word = search_words[1].strip()
                         
-                        word_variants = []
-                        for word in [first_word, second_word]:
-                            word_variants.append([
-                                word,
-                                word.lower(),
-                                word.upper(),
-                                word.title()
-                            ])
+                        # Варианты с ё/е для каждого слова
+                        first_word_variants = get_e_yo_variants(first_word)
+                        second_word_variants = get_e_yo_variants(second_word)
                         
-                        for first_variants in word_variants[0]:
-                            for second_variants in word_variants[1]:
-                                query = '''
-                                SELECT id, client_id, fio, number, car_number, date_dtp, created_at, 
-                                       COALESCE(data_json, '{}') as data_json
-                                FROM clients 
-                                WHERE fio ILIKE %s AND fio ILIKE %s AND agent_id = %s::text
-                                ORDER BY id DESC
-                                '''
-                                
-                                cursor.execute(query, (f"%{first_variants}%", f"%{second_variants}%", user_id))
-                                word_results = cursor.fetchall()
-                                if word_results:
-                                    results.extend(word_results)
-                                    print(f"Найдено по словам '{first_variants}' + '{second_variants}': {len(word_results)}")
-                                    break
+                        # Пробуем все комбинации
+                        for first_variant in first_word_variants:
+                            for second_variant in second_word_variants:
+                                # Различные варианты регистра
+                                for first_case in [first_variant, first_variant.lower(), first_variant.upper(), first_variant.title()]:
+                                    for second_case in [second_variant, second_variant.lower(), second_variant.upper(), second_variant.title()]:
+                                        query = '''
+                                        SELECT id, client_id, fio, number, car_number, date_dtp, created_at, 
+                                               COALESCE(data_json, '{}') as data_json
+                                        FROM clients 
+                                        WHERE fio ILIKE %s AND fio ILIKE %s AND agent_id = %s::text
+                                        ORDER BY id DESC
+                                        '''
+                                        
+                                        cursor.execute(query, (f"%{first_case}%", f"%{second_case}%", user_id))
+                                        word_results = cursor.fetchall()
+                                        if word_results:
+                                            results.extend(word_results)
+                                            print(f"Найдено по словам '{first_case}' + '{second_case}': {len(word_results)}")
+                                            break
                             
                             if results:
+                                break
+                
+                # 4. Поиск только по первому слову (фамилии) с учетом ё/е
+                if not results:
+                    first_word = search_term.split()[0] if search_term.split() else search_term
+                    first_word_variants = get_e_yo_variants(first_word)
+                    
+                    for variant in first_word_variants:
+                        # Различные варианты регистра
+                        for case_variant in [variant, variant.lower(), variant.upper(), variant.title()]:
+                            query = '''
+                            SELECT id, client_id, fio, number, car_number, date_dtp, created_at, 
+                                   COALESCE(data_json, '{}') as data_json
+                            FROM clients 
+                            WHERE fio ILIKE %s AND agent_id = %s::text
+                            ORDER BY id DESC
+                            '''
+                            
+                            cursor.execute(query, (f"%{case_variant}%", user_id))
+                            surname_results = cursor.fetchall()
+                            if surname_results:
+                                results.extend(surname_results)
+                                print(f"Найдено по фамилии '{case_variant}': {len(surname_results)}")
                                 break
                 
                 # Удаляем дубликаты по client_id
@@ -2189,6 +2369,4 @@ def get_agent_fio_by_id(agent_id):
         with conn.cursor() as cursor:
             cursor.execute("SELECT fio FROM admins WHERE user_id = %s", (agent_id,))
             result = cursor.fetchone()
-
             return result[0] if result else "Неизвестный агент"
-

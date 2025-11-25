@@ -8,16 +8,71 @@ from database import (
     save_client_to_db_with_id
 )
 from word_utils import create_fio_data_file, replace_words_in_word, get_next_business_date
+import threading
+import time
+from functools import wraps
 
-
+active_callbacks = {}
+callback_lock = threading.Lock()
 db = DatabaseManager()
+
 
 def setup_pretenziya_handlers(bot, user_temp_data):
     """Регистрация обработчиков для претензий, заявлений к омбудсмену и исков"""
-    
+    def prevent_double_click(timeout=2.0):
+        """
+        Декоратор для предотвращения повторных нажатий на inline-кнопки
+        timeout - время в секундах, в течение которого повторные нажатия игнорируются
+        """
+        def decorator(func):
+            @wraps(func)
+            def wrapper(call):
+                user_id = call.from_user.id
+                callback_data = call.data
+                
+                # Создаем уникальный ключ для этой комбинации пользователь+кнопка
+                key = f"{user_id}_{callback_data}"
+                
+                with callback_lock:
+                    current_time = time.time()
+                    
+                    # Проверяем, не обрабатывается ли уже этот callback
+                    if key in active_callbacks:
+                        last_time = active_callbacks[key]
+                        if current_time - last_time < timeout:
+                            # Слишком быстрое повторное нажатие - игнорируем
+                            bot.answer_callback_query(
+                                call.id, 
+                                "⏳ Пожалуйста, подождите...", 
+                                show_alert=False
+                            )
+                            return
+                    
+                    # Отмечаем начало обработки
+                    active_callbacks[key] = current_time
+                
+                try:
+                    # Сразу отвечаем на callback, чтобы убрать "часики"
+                    bot.answer_callback_query(call.id)
+                    
+                    # Выполняем основную функцию
+                    return func(call)
+                finally:
+                    # Через timeout секунд разрешаем повторное нажатие
+                    def cleanup():
+                        time.sleep(timeout)
+                        with callback_lock:
+                            if key in active_callbacks:
+                                del active_callbacks[key]
+                    
+                    threading.Thread(target=cleanup, daemon=True).start()
+            
+            return wrapper
+        return decorator
     # ========== СОСТАВЛЕНИЕ ПРЕТЕНЗИИ ==========
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("create_pretenziya_"))
+    @prevent_double_click(timeout=3.0)
     def callback_create_pretenziya(call):
         """Начало составления претензии"""
         user_id = call.from_user.id
@@ -92,11 +147,205 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                 user_message_id = msg.message_id
                 bot.register_next_step_handler(msg, Nv_ins, data, user_message_id)
 
+    bot.callback_query_handler(func=lambda call: call.data.startswith("create_pretenziya_zayavlenie_"))
+    def callback_create_pretenziya(call):
+        """Начало составления претензии"""
+        user_id = call.from_user.id
+        client_id = call.data.replace("create_pretenziya_zayavlenie_", "")
         
-    
+        # Загружаем данные клиента
+        contract = get_client_from_db_by_client_id(client_id)
+        
+        if not contract:
+            bot.answer_callback_query(call.id, "❌ Договор не найден", show_alert=True)
+            return
+        
+        try:
+            if contract.get('data_json'):
+                contract_data = json.loads(contract.get('data_json', '{}'))
+                data = {**contract, **contract_data}
+            else:
+                data = contract
+        except:
+            data = contract
+        
+        # Проверяем наличие необходимых документов
+        payment_confirmed = data.get('payment_confirmed', '') == 'Yes'
+        doverennost_confirmed = data.get('doverennost_confirmed', '') == 'Yes'
+        
+        if not payment_confirmed or not doverennost_confirmed:
+            missing = []
+            if not payment_confirmed:
+                missing.append("документ об оплате")
+            if not doverennost_confirmed:
+                missing.append("нотариальная доверенность")
+            
+            bot.answer_callback_query(
+                call.id, 
+                f"❌ Для составления претензии необходимо загрузить: {', '.join(missing)}", 
+                show_alert=True
+            )
+            return
+        
+        # Сохраняем данные в user_temp_data
+        if user_id not in user_temp_data:
+            user_temp_data[user_id] = {}
+        data['status'] = 'Составлена претензия'
+        data.update({"date_pret": str((datetime.now()).strftime("%d.%m.%Y"))})
+        try:
+            from database import save_client_to_db_with_id
+            updated_client_id, updated_data = save_client_to_db_with_id(data)
+            data.update(updated_data)
+            print(data)
+                
+        except Exception as e:
+            print(f"⚠️ Ошибка обновления: {e}")
+            # Продолжаем с текущими данными
+        
+        create_fio_data_file(data)
+        replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}","{{ ДР }}", 
+                                        "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                                        "{{ NДоверенности }}","{{ Дата_доверенности }}", "{{ Представитель }}",
+                                        "{{ Nакта_осмотра }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}",
+                                        "{{ Nавто_клиента }}", "{{ Дата_подачи_заявления }}","{{ Организация }}", "{{ Дата_экспертизы }}",
+                                        "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата }}","{{ Номер_заявления_изменения }}", "{{ ФИОк }}", "{{ Выплата_ОСАГО }}",
+                                        "{{ Дата_претензии }}"],
+                                        [str(data["insurance"]), str(data["city"]),str(data["fio"]), str(data["date_of_birth"]),
+                                            str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                            str(data["N_dov_not"]), str(data["data_dov_not"]),str(data["fio_not"]), 
+                                            str(data["Na_ins"]),str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
+                                            str(data["marks"]), str(data["car_number"]),str(data["date_ins_pod"]), str(data["org_exp"]),
+                                            str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]), str(data["date_ins"]),
+                                            str(data["Nv_ins"]), str(data["fio_k"]),str(data["coin_osago"]), str(data["date_pret"])],
+                                            "Шаблоны/1. ДТП/2. На выплату/1. заявление на выплату - выплатили/6. Претензия о замене способа возмещения.docx",
+                                            "clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия о замене способа возмещения.docx")
+        try:
+            with open(f"clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия о замене способа возмещения.docx", 'rb') as doc:
+                keyboard = types.InlineKeyboardMarkup()
+                btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
+                keyboard.add(btn1) 
+                bot.send_document(call.message.chat.id, doc, caption="📋 Претензия", reply_markup = keyboard)
+        except FileNotFoundError:
+            bot.send_message(call.message.chat.id, "❌ Ошибка: файл не найден")
+        keyboard = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
+        keyboard.add(btn1)   
+        bot.send_message(
+            int(data['user_id']),
+            "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
+            reply_markup = keyboard
+            )
+        
     # ========== ЗАЯВЛЕНИЕ К ФИН.ОМБУДСМЕНУ ==========
-    
     @bot.callback_query_handler(func=lambda call: call.data.startswith("create_ombudsmen_"))
+    @prevent_double_click(timeout=3.0)
+    def callback_create_ombudsmen(call):
+        """Начало составления заявления к фин.омбудсмену"""
+        user_id = call.from_user.id
+        client_id = call.data.replace("create_ombudsmen_", "")
+        
+        # Загружаем данные клиента
+        contract = get_client_from_db_by_client_id(client_id)
+        
+        if not contract:
+            bot.answer_callback_query(call.id, "❌ Договор не найден", show_alert=True)
+            return
+        
+        try:
+            if contract.get('data_json'):
+                contract_data = json.loads(contract.get('data_json', '{}'))
+                data = {**contract, **contract_data}
+            else:
+                data = contract
+        except:
+            data = contract
+        
+        # Сохраняем данные в user_temp_data
+        if user_id not in user_temp_data:
+            user_temp_data[user_id] = {}
+        user_temp_data[user_id]['ombudsmen_data'] = data
+        user_temp_data[user_id]['client_id'] = client_id
+        user_temp_data[user_id]['client_user_id'] = data.get('user_id')
+        keyboard = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("Да", callback_data=f"YESpodal")
+        btn2 = types.InlineKeyboardButton("Нет", callback_data=f"NOpodal")
+        keyboard.add(btn1)
+        keyboard.add(btn2)
+        
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Удовлетворена ли претензия?",
+            reply_markup=keyboard
+            )
+    @bot.callback_query_handler(func=lambda call: call.data in ["YESpodal"])
+    @prevent_double_click(timeout=3.0)
+    def handle_answer_docs_no(call):
+        user_id = call.from_user.id
+        data = user_temp_data[user_id]['ombudsmen_data']
+        data['status'] = 'Ожидание претензии'
+        data['accident'] = 'ДТП'
+        try:
+            client_id, updated_data = save_client_to_db_with_id(data)
+            data.update(updated_data)
+        except Exception as e:
+            print(f"Ошибка базы данных: {e}")
+
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("1", callback_data=f"vibor2"))
+        keyboard.add(types.InlineKeyboardButton("2", callback_data=f"vibor3"))
+        keyboard.add(types.InlineKeyboardButton("3", callback_data=f"vibor4"))
+        bot.edit_message_text(chat_id = call.message.chat.id, message_id = call.message.message_id, text = "Выберите из предложенных вариантов:\n\n" 
+        "1) Страховая компания выдала направление на ремонт, СТО отказала.\n" \
+        "2) Страховая выдала направление на ремонт и ремонт произведен.\n" \
+        "3) Страховая компания выдала направление на ремонт, СТО дальше 50 км.",
+        reply_markup = keyboard)
+    @bot.callback_query_handler(func=lambda call: call.data in ["NOpodal"])
+    @prevent_double_click(timeout=3.0)
+    def handle_answer_docs_no(call):
+        user_id = call.from_user.id
+        data = user_temp_data[user_id]['ombudsmen_data']
+        data['status'] = 'Составлено заявление к Фин.омбудсмену'
+        data.update({'date_ombuc': str(get_next_business_date())})
+        try:
+            client_id, updated_data = save_client_to_db_with_id(data)
+            data.update(updated_data)
+        except Exception as e:
+            print(f"Ошибка базы данных: {e}")
+        create_fio_data_file(data)
+        replace_words_in_word(["{{ Дата_обуцмен }}","{{ Страховая }}", "{{ Город }}","{{ ФИО }}", "{{ ДР }}", "{{ Место }}",
+                                "{{ Паспорт_серия }}", "{{ Паспорт_номер }}","{{ Паспорт_выдан }}", "{{ Паспорт_когда }}",
+                                "{{ Адрес }}", "{{ Телефон }}","{{ Серия_полиса }}", "{{ Номер_полиса }}", "{{ Дата_полиса }}",
+                                "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}",
+                                "{{ Nавто_клиента }}","{{ Дата }}", "{{ Nв_страховую }}","{{ Организация }}", "{{ Nэкспертизы }}", "{{ Дата_экспертизы }}",
+                                "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата_заявления_изменения }}", "{{ Номер_заявления_изменения }}", "{{ ФИОк }}",
+                                "{{ Дата_претензии }}", "{{ Выплата_ОСАГО }}"],
+                                [str(data["date_ombuc"]), str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
+                                    str(data["city_birth"]), str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                    str(data["address"]), str(data["number"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
+                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
+                                    str(data["marks"]), str(data["car_number"]), str(data["date_ins"]), str(data["Nv_ins"]),str(data["org_exp"]),str(data["Na_ins"]),
+                                    str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]), str(data["date_pret"]),
+                                    str(data["Nv_ins"]), str(data["fio_k"]),str(data["date_pret"]), str(data["coin_osago"])],
+                                    "Шаблоны/1. ДТП/2. На выплату/1. заявление на выплату - выплатили/7. Заявление фин. омбуцмену изменение способа возмещения.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"7. Заявление фин. омбуцмену изменение способа возмещения.docx")
+        try:
+            with open(f"clients/"+str(data["client_id"])+"/Документы/"+"7. Заявление фин. омбуцмену изменение способа возмещения.docx", 'rb') as doc:
+                keyboard = types.InlineKeyboardMarkup()
+                btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
+                bot.send_document(call.message.chat.id, doc, caption="📋 Заявление фин.омбуцмену", reply_markup = keyboard)
+        except FileNotFoundError:
+            bot.send_message(call.message.chat.id, "❌ Ошибка: файл не найден")
+        keyboard = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
+        keyboard.add(btn1)   
+        bot.send_message(
+            int(data['user_id']),
+            "✅ Составлено заявление фин.омбуцмену. Ознакомиться с ним можно в личном кабинете.",
+            reply_markup = keyboard
+            )
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("create_ombudsmen_"))
+    @prevent_double_click(timeout=3.0)
     def callback_create_ombudsmen(call):
         """Начало составления заявления к фин.омбудсмену"""
         user_id = call.from_user.id
@@ -152,6 +401,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                 reply_markup=keyboard
                 )
     @bot.callback_query_handler(func=lambda call: call.data == "NOprV2")
+    @prevent_double_click(timeout=3.0)
     def callback_ombudsmen_noV2(call):
         user_id = call.from_user.id
         data = user_temp_data[user_id]['ombudsmen_data']
@@ -163,6 +413,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
         user_message_id = msg.message_id
         bot.register_next_step_handler(msg, date_exp, data, user_message_id)
     @bot.callback_query_handler(func=lambda call: call.data == "YESprRem")
+    @prevent_double_click(timeout=3.0)
     def callback_ombudsmen_yes(call):
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("1", callback_data=f"vibor2"))
@@ -175,6 +426,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
         reply_markup = keyboard)
 
     @bot.callback_query_handler(func=lambda call: call.data == "NOprV1")
+    @prevent_double_click(timeout=3.0)
     def callback_ombudsmen_no(call):
         user_id = call.from_user.id
         data = user_temp_data[user_id]['ombudsmen_data']
@@ -217,10 +469,10 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                                 str(data["date_ins_pod"]), str(data["org_exp"]), str(data["Na_ins"]),str(data["date_exp"]),
                                 str(data["coin_exp"]), str(data["coin_exp_izn"]),str(data["date_pret"]),
                                 str(data["data_pret_otv"]), str(data["coin_osago"]),str(data["fio_k"]), str(data["Nv_ins"])],
-                                "Шаблоны\\1. ДТП\\1. На ремонт\\Выплата без согласования\\7. Заявление фин. омбудсмену при выплате без согласования.docx",
-                                "clients\\"+str(data["client_id"])+"\\Документы\\"+"7. Заявление фин. омбудсмену при выплате без согласования.docx")
+                                "Шаблоны/1. ДТП/1. На ремонт/Выплата без согласования/7. Заявление фин. омбудсмену при выплате без согласования.docx",
+                                "clients/"+str(data["client_id"])+"/Документы/"+"7. Заявление фин. омбудсмену при выплате без согласования.docx")
             try:
-                with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"7. Заявление фин. омбудсмену при выплате без согласования.docx", 'rb') as doc:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"7. Заявление фин. омбудсмену при выплате без согласования.docx", 'rb') as doc:
                     bot.send_document(message.chat.id, doc, caption="📋 Заявление финансовому омбудсмену")
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
@@ -256,6 +508,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
     # ========== ИСКОВОЕ ЗАЯВЛЕНИЕ ==========
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("create_isk_"))
+    @prevent_double_click(timeout=3.0)
     def callback_create_isk(call):
         """Начало составления искового заявления"""
         user_id = call.from_user.id
@@ -293,6 +546,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
         reply_markup = keyboard)
 
     @bot.callback_query_handler(func=lambda call: call.data =="Ombuc_udov")
+    @prevent_double_click(timeout=3.0)
     def callback_Ombuc_udov(call):
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Ура", callback_data=f"Ura"))
@@ -300,6 +554,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
         bot.edit_message_text(call.message.chat.id, call.message.message_id, "Выберите из предложенных вариантов",
         reply_markup = keyboard)
     @bot.callback_query_handler(func=lambda call: call.data in ["Ura", "Delict"])
+    @prevent_double_click(timeout=3.0)
     def callback_Ura_Delict(call):
         data = user_temp_data[call.from_user.id]['isk_data']
         if call.data == "Ura":
@@ -314,6 +569,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
         bot.edit_message_text(call.message.chat.id, call.message.message_id, "Вернуться к договору?",
         reply_markup = keyboard)
     @bot.callback_query_handler(func=lambda call: call.data in ["Ombuc_No_udov", "Ombuc_chast_udov"])
+    @prevent_double_click(timeout=3.0)
     def callback_Ombuc_No_udov(call):
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Да", callback_data=f"Nezav_exp_Yes"))
@@ -321,6 +577,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
         bot.edit_message_text(call.message.chat.id, call.message.message_id, "Заказать независимую экспертизу?",
         reply_markup = keyboard)
     @bot.callback_query_handler(func=lambda call: call.data in ["Nezav_exp_Yes", "Nezav_exp_No"])
+    @prevent_double_click(timeout=3.0)
     def callback_Ombuc_Nezav_exp_Yes(call):
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Да", callback_data=f"Nezav_exp_Yes"))
@@ -460,11 +717,13 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                             str(data["data_pret_prin"]),str(data["N_pret_prin"]),str(data["date_pret"]),str(data["bank"]),str(data["bank_account"]),
                             str(data["bank_account_corr"]),str(data["BIK"]),str(data["INN"]),str(data["fio_k"]), str(data["org_exp"]),str(data["Na_ins"]),
                             str(data["date_exp"]), str(data["coin_exp"]), str(data["coin_exp_izn"]), str(data["city"])],
-                            "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО отказала\\8. Заявление фин. омбуцмену СТО отказала.docx",
-                            "clients\\"+str(data["client_id"])+"\\Документы\\"+"8. Заявление фин. омбуцмену СТО отказала.docx")
+                            "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/8. Заявление фин. омбуцмену СТО отказала.docx",
+                            "clients/"+str(data["client_id"])+"/Документы/"+"8. Заявление фин. омбуцмену СТО отказала.docx")
                 try:
-                    with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"8. Заявление фин. омбуцмену СТО отказала.docx", 'rb') as doc:
-                        bot.send_document(message.chat.id, doc, caption="📋 Заявление финансовому омбудсмену")
+                    keyboard = types.InlineKeyboardMarkup()
+                    keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+                    with open(f"clients/"+str(data["client_id"])+"/Документы/"+"8. Заявление фин. омбуцмену СТО отказала.docx", 'rb') as doc:
+                        bot.send_document(message.chat.id, doc, caption="📋 Заявление финансовому омбудсмену", reply_markup = keyboard)
                 except FileNotFoundError:
                     bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
 
@@ -487,8 +746,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                         del user_temp_data[user_id]['client_id']
                     if 'client_user_id' in user_temp_data[user_id]:
                         del user_temp_data[user_id]['client_user_id']
-                from main_menu import show_main_menu_by_user_id
-                show_main_menu_by_user_id(bot, user_id)
+
             elif data.get("vibor",'') == "vibor4":
                 data.update({"coin_exp_izn": message.text})
                 data.update({"date_ombuc": str(get_next_business_date())})
@@ -518,11 +776,13 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                             str(data["data_pret_prin"]),str(data["N_pret_prin"]),str(data["date_pret"]),str(data["bank"]),str(data["bank_account"]),
                             str(data["bank_account_corr"]),str(data["BIK"]),str(data["INN"]),str(data["fio_k"]), str(data["org_exp"]),str(data["Na_ins"]),
                             str(data["date_exp"]), str(data["coin_exp"]), str(data["coin_exp_izn"]), str(data["city"]), str(data["city_sto"])],
-                            "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО свыше 50км\\7. Заявление фин. омбудсмену СТО свыше 50 км.docx",
-                            "clients\\"+str(data["client_id"])+"\\Документы\\"+"7. Заявление фин. омбудсмену СТО свыше 50 км.docx")
+                            "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО свыше 50км/7. Заявление фин. омбудсмену СТО свыше 50 км.docx",
+                            "clients/"+str(data["client_id"])+"/Документы/"+"7. Заявление фин. омбудсмену СТО свыше 50 км.docx")
                 try:
-                    with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"7. Заявление фин. омбудсмену СТО свыше 50 км.docx", 'rb') as doc:
-                        bot.send_document(message.chat.id, doc, caption="📋 Заявление финансовому омбудсмену")
+                    keyboard = types.InlineKeyboardMarkup()
+                    keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+                    with open(f"clients/"+str(data["client_id"])+"/Документы/"+"7. Заявление фин. омбудсмену СТО свыше 50 км.docx", 'rb') as doc:
+                        bot.send_document(message.chat.id, doc, caption="📋 Заявление финансовому омбудсмену", reply_markup = keyboard)
                 except FileNotFoundError:
                     bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
 
@@ -593,11 +853,14 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                                                 str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
                                                 str(data["org_exp"]), str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]),
                                                 str(data["coin_osago"]), str(datetime.now().strftime("%d.%m.%Y"))],
-                                                "Шаблоны\\1. ДТП\\1. На ремонт\\Выплата без согласования\\6. Претензия в страховую Выплата без согласования.docx",
-                                                "clients\\"+str(data["client_id"])+"\\Документы\\"+"6. Претензия в страховую Выплата без согласования.docx")
+                                                "Шаблоны/1. ДТП/1. На ремонт/Выплата без согласования/6. Претензия в страховую Выплата без согласования.docx",
+                                                "clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия в страховую Выплата без согласования.docx")
                 try:
-                    with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"6. Претензия в страховую Выплата без согласования.docx", 'rb') as doc:
-                        bot.send_document(message.chat.id, doc, caption="📋 Претензия")
+                    with open(f"clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия в страховую Выплата без согласования.docx", 'rb') as doc:
+                        keyboard = types.InlineKeyboardMarkup()
+                        btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
+                        keyboard.add(btn1) 
+                        bot.send_document(message.chat.id, doc, caption="📋 Претензия", reply_markup = keyboard)
                 except FileNotFoundError:
                     bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
                 keyboard = types.InlineKeyboardMarkup()
@@ -609,8 +872,13 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                     reply_markup = keyboard
                     )
 
-                from main_menu import show_main_menu_by_user_id
-                show_main_menu_by_user_id(bot, user_id)
+        else:
+            message = bot.send_message(
+                message.chat.id,
+                text="Неправильный формат, цена должна состоять только из цифр в рублях!\nВведите сумму выплаты по ОСАГО"
+            )
+            user_message_id = message.message_id
+            bot.register_next_step_handler(message, coin_osago, data, user_message_id)
     
     def date_napr_sto(message, data, user_message_id):
         try:
@@ -679,10 +947,10 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                                                 str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
                                                 str(data["date_napr_sto"]), str(data["N_sto"]), str(data["date_sto"]),str(data["name_sto"]),
                                                 str(data["data_otkaz_sto"]), str(data["date_pret"]), str(data["city"]), str(data["marks"]),str(data["car_number"])],
-                                                "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО отказала\\7. Претензия в страховую СТО отказала.docx",
-                                                "clients\\"+str(data["client_id"])+"\\Документы\\"+"7. Претензия в страховую СТО отказала.docx")
+                                                "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/7. Претензия в страховую СТО отказала.docx",
+                                                "clients/"+str(data["client_id"])+"/Документы/"+"7. Претензия в страховую СТО отказала.docx")
             try:
-                with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"7. Претензия в страховую СТО отказала.docx", 'rb') as doc:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"7. Претензия в страховую СТО отказала.docx", 'rb') as doc:
                     bot.send_document(message.chat.id, doc, caption="📋 Претензия")
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
@@ -765,10 +1033,10 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                                                 str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
                                                 str(data["date_napr_sto"]), str(data["N_sto"]), str(data["name_sto"]),str(data["index_sto"]),str(data["address_sto"]),
                                                 str(data["city_sto"]), str(data["N_sto"]), str(data["date_napr_sto"]), str(data["marks"]),str(data["car_number"]), str(data["date_pret"])],
-                                                "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО свыше 50км\\6. Претензия в страховую  СТО свыше 50 км.docx",
-                                                "clients\\"+str(data["client_id"])+"\\Документы\\"+"6. Претензия в страховую  СТО свыше 50 км.docx")
+                                                "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО свыше 50км/6. Претензия в страховую  СТО свыше 50 км.docx",
+                                                "clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия в страховую  СТО свыше 50 км.docx")
         try:
-            with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"6. Претензия в страховую  СТО свыше 50 км.docx", 'rb') as doc:
+            with open(f"clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия в страховую  СТО свыше 50 км.docx", 'rb') as doc:
                 bot.send_document(message.chat.id, doc, caption="📋 Претензия")
         except FileNotFoundError:
             bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
@@ -786,6 +1054,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
 
     # ========== Деликт ==========
     @bot.callback_query_handler(func=lambda call: call.data.startswith("create_delict_"))
+    @prevent_double_click(timeout=3.0)
     def callback_delict(call):
         """Начало составления искового заявления"""
         user_id = call.from_user.id
@@ -836,6 +1105,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
         reply_markup = keyboard)
     
     @bot.callback_query_handler(func=lambda call: call.data in ["sud1_noosago", "sud2_noosago", "sud3_noosago", "sud4_noosago", "sud5_noosago", "sud6_noosago", "sudOther_noosago"])
+    @prevent_double_click(timeout=3.0)
     def callback_insurance(call):
 
         user_id = call.from_user.id
@@ -1046,6 +1316,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
             bot.register_next_step_handler(message, coin_expD, data, user_message_id)
 
     @bot.callback_query_handler(func=lambda call: call.data in ["noosago_STS", "noosago_PTS", "noosago_DKP"])
+    @prevent_double_click(timeout=3.0)
     def callback_client_docs(call):
         """Обработка выбора документа о регистрации ТС"""
         client_id = call.from_user.id
@@ -1277,10 +1548,10 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                                     str(data["marks_culp"]),str(data["number_auto_culp"]), str(data["money_exp"]), str(data["year"]), str(data["client_id"]),str(data["date_exp"]),
                                     str(data["date_ins"]), str(data["coin_not"]), str(data["docs"]), str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]),
                                     str(data["date_izvesh_dtp"]), str(data["date_isk"])],
-                                    "Шаблоны\\3. Деликт без ОСАГО\\Деликт (без ОСАГО) 4.  Исковое заявление.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"Деликт (без ОСАГО) 4.  Исковое заявление.docx")
+                                    "Шаблоны/3. Деликт без ОСАГО/Деликт (без ОСАГО) 4.  Исковое заявление.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Деликт (без ОСАГО) 4.  Исковое заявление.docx")
             try:
-                with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"Деликт (без ОСАГО) 4.  Исковое заявление.docx", 'rb') as doc:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Деликт (без ОСАГО) 4.  Исковое заявление.docx", 'rb') as doc:
                     bot.send_document(message.chat.id, doc, caption="📋 Исковое заявление")
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
@@ -1309,6 +1580,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
 
 # ========== Деликт Выплата ==========
     @bot.callback_query_handler(func=lambda call: call.data.startswith("create_delictViplat_"))
+    @prevent_double_click(timeout=3.0)
     def callback_create_delictViplat(call):
         """Начало составления искового заявления"""
         user_id = call.from_user.id
@@ -1359,6 +1631,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
         reply_markup = keyboard)
     
     @bot.callback_query_handler(func=lambda call: call.data in ["sud1_viplata", "sud2_viplata", "sud3_viplata", "sud4_viplata", "sud5_viplata", "sud6_viplata", "sudOther_viplata"])
+    @prevent_double_click(timeout=3.0)
     def callback_insurance(call):
 
         user_id = call.from_user.id
@@ -1769,10 +2042,10 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                                     str(data["date_viplat_work"]), str(data["N_plat_por"]), str(data["date_plat_por"]), str(data["year"]), str(data["client_id"]), str(data["pret"]),
                                     str(data["money_exp"]), str(data["date_exp"]), str(data["docs"]), str(data["seria_docs"]), str(data["number_docs"]),str(data["date_izvesh_dtp"]),
                                     str(data["date_isk"])],
-                                    "Шаблоны\\1. ДТП\\2. На выплату\\4. Деликт\\Деликт 5.  Исковое заявление.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"Деликт 5.  Исковое заявление.docx") 
+                                    "Шаблоны/1. ДТП/2. На выплату/4. Деликт/Деликт 5.  Исковое заявление.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Деликт 5.  Исковое заявление.docx") 
             try:
-                with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"Деликт 5.  Исковое заявление.docx", 'rb') as doc:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Деликт 5.  Исковое заявление.docx", 'rb') as doc:
                     bot.send_document(message.chat.id, doc, caption="📋 Исковое заявление")
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
@@ -1802,6 +2075,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
     # ========== Цессия ==========
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("create_cecciaDogovor_"))
+    @prevent_double_click(timeout=3.0)
     def callback_create_cecciaDogovor(call):
         """Начало составления договора Цессии"""
         user_id = call.from_user.id
@@ -2227,8 +2501,8 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                                     str(data["fio"]), str(data["date_of_birth"]),str(data["city_birth"]), str(data["seria_pasport"]),
                                     str(data["number_pasport"]), str(data["where_pasport"]), str(data["when_pasport"]), str(data["index_postal"]),str(data["address"]), 
                                     str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"])],
-                                    "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 5. Соглашение о замене стороны Цессия.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"Цессия 5. Соглашение о замене стороны Цессия.docx")
+                                    "Шаблоны/1. ДТП/2. На выплату/3. Цессия/Цессия 5. Соглашение о замене стороны Цессия.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Цессия 5. Соглашение о замене стороны Цессия.docx")
             replace_words_in_word(["{{ Год }}", "{{ NКлиента }}", "{{ Дата }}", 
                                 "{{ Город }}", "{{ ЦФИО }}","{{ ЦДР }}", "{{ ЦМесто }}",
                                 "{{ ЦПаспорт_серия }}", "{{ ЦПаспорт_номер }}", "{{ ЦПаспорт_выдан }}","{{ ЦПаспорт_когда }}","{{ ЦИндекс }}",
@@ -2247,22 +2521,22 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                                     str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), str(data["marks_culp"]),
                                     str(data["number_auto_culp"]), str(fio_culp_k), str(data["coin_exp"]), str(data["coin_osago"]),str(data["money_exp"]),
                                     str(data["date_exp"]), str(data["date_pret"]), str(data["coin_c"]), str(data["number"]), str(data["fio_k"]), str(data["number_c"]),str(data["fio_c_k"])],
-                                    "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 6. Договор цессии.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"Цессия 6. Договор цессии.docx")
+                                    "Шаблоны/1. ДТП/2. На выплату/3. Цессия/Цессия 6. Договор цессии.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Цессия 6. Договор цессии.docx")
             replace_words_in_word(["{{ винФИО }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
                                 "{{ Разница }}", "{{ ФИО }}","{{ Год }}", "{{ NКлиента }}",
                                 "{{ Дата }}", "{{ ЦФИО }}"],
                                 [str(data["fio_culp"]), str(data["date_dtp"]), str(data["time_dtp"]), str(float(data["coin_exp"])-float(data['coin_osago'])),
                                     str(data["fio"]), str(data["year"]),str(data["client_id"]), str(data["pret"]),
                                     str(data["fio_c"])],
-                                    "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 7. Предложение о досудебном урегулировании спора.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"Цессия 7. Предложение о досудебном урегулировании спора.docx")
+                                    "Шаблоны/1. ДТП/2. На выплату/3. Цессия/Цессия 7. Предложение о досудебном урегулировании спора.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Цессия 7. Предложение о досудебном урегулировании спора.docx")
             try:
-                with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"Цессия 5. Соглашение о замене стороны Цессия.docx", 'rb') as doc:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Цессия 5. Соглашение о замене стороны Цессия.docx", 'rb') as doc:
                     bot.send_document(message.chat.id, doc, caption="📋 Соглашение о замене стороны Цессия")
-                with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"Цессия 6. Договор цессии.docx", 'rb') as doc:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Цессия 6. Договор цессии.docx", 'rb') as doc:
                     bot.send_document(message.chat.id, doc, caption="📋 Договор цессии")
-                with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"Цессия 7. Предложение о досудебном урегулировании спора.docx", 'rb') as doc:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Цессия 7. Предложение о досудебном урегулировании спора.docx", 'rb') as doc:
                     bot.send_document(message.chat.id, doc, caption="📋 Предложение о досудебном урегулировании спора")
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
@@ -2289,6 +2563,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
     # ========== Цессия Иск ==========
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("create_cecciaIsk_"))
+    @prevent_double_click(timeout=3.0)
     def callback_create_cecciaIsk(call):
         """Начало составления договора Цессии"""
         user_id = call.from_user.id
@@ -2395,6 +2670,7 @@ def setup_pretenziya_handlers(bot, user_temp_data):
             bot.register_next_step_handler(message, date_plat_porC, data, user_message_id)
 
     @bot.callback_query_handler(func=lambda call: call.data in ["sud1_ceccia", "sud2_ceccia", "sud3_ceccia", "sud4_ceccia", "sud5_ceccia", "sud6_ceccia", "sudOther_ceccia"])
+    @prevent_double_click(timeout=3.0)
     def callback_insurance(call):
 
         user_id = call.from_user.id
@@ -2528,11 +2804,11 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                                     str(data["marks_culp"]),str(data["number_auto_culp"]), str(fio_culp_k), str(data["coin_exp"]), str(data["coin_osago"]),str(data["N_viplat_work"]),
                                     str(data["date_viplat_work"]), str(data["N_plat_por"]), str(data["date_plat_por"]), str(data["year"]), str(data["client_id"]), str(data["pret"]),
                                     str(data["money_exp"]), str(data["coin_c"]), str(data["city"]), str(data["date_isk"])],
-                                    "Шаблоны\\1. ДТП\\2. На выплату\\3. Цессия\\Цессия 8. Исковое заявление Цессия.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"Цессия 8. Исковое заявление Цессия.docx")
+                                    "Шаблоны/1. ДТП/2. На выплату/3. Цессия/Цессия 8. Исковое заявление Цессия.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Цессия 8. Исковое заявление Цессия.docx")
 
             try:
-                with open(f"clients\\"+str(data["client_id"])+"\\Документы\\"+"Цессия 8. Исковое заявление Цессия.docx", 'rb') as doc:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Цессия 8. Исковое заявление Цессия.docx", 'rb') as doc:
                     bot.send_document(message.chat.id, doc, caption="📋 Исковое заявление Цессия")
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
@@ -2554,6 +2830,4 @@ def setup_pretenziya_handlers(bot, user_temp_data):
                 text="Неправильный формат, стоимость должна состоять только из цифр в рублях, например: 5000!\nВведите стоимость государственной пошлины"
             )
             user_message_id = message.message_id
-
             bot.register_next_step_handler(message, gos_moneyC, data, user_message_id)
-

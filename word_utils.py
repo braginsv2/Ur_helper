@@ -146,7 +146,7 @@ def create_fio_data_file(data_dict):
     fio = data_dict['fio']
     client_id = data_dict['client_id']
     # Создаем папку fio, если она не существует
-    fio_dir = 'clients\\'+str(client_id)
+    fio_dir = 'clients/'+str(client_id)
     if not os.path.exists(fio_dir):
         os.makedirs(fio_dir)
     
@@ -408,8 +408,8 @@ def edit_files(files, data):
                                 "{{ Страховая }}", "{{ винФИО }}"],
                                 [str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
                                     str(data['year']),str(data['client_id']), str(data["fio"]), str(data["insurance"]), str(data["fio_culp"])],
-                                    "Шаблоны\\1. ДТП\\1. На ремонт\\1. Обложка дела.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"1. Обложка дела.docx")
+                                    "Шаблоны/1. ДТП/1. На ремонт/1. Обложка дела.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"1. Обложка дела.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -429,8 +429,8 @@ def edit_files(files, data):
                  str(data["address"]), str(data["date_dtp"]), 
                  str(data["time_dtp"]), str(data["address_dtp"]), 
                  str(data['fio_k'])],
-                "Шаблоны\\1. ДТП\\1. На ремонт\\2. Юр договор.docx",
-                f"clients\\"+str(data["client_id"])+"\\Документы\\2. Юр договор.docx"
+                "Шаблоны/1. ДТП/1. На ремонт/2. Юр договор.docx",
+                f"clients/"+str(data["client_id"])+"/Документы/2. Юр договор.docx"
             )
             except Exception as e:
                 print(e)
@@ -452,8 +452,8 @@ def edit_files(files, data):
                 str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
                 str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
                 str(data["number_insurance"]), str(data["city"]), str(datetime.now().strftime("%d.%m.%Y")), str(data["city_birth"])],
-                "Шаблоны\\1. ДТП\\1. На ремонт\\3. Заявление в страховую после ДТП\\3a Заявление в Страховую ФЛ собственник с эвакуатором.docx",
-                f"clients\\{data['client_id']}\\Документы\\3a Заявление в Страховую ФЛ собственник с эвакуатором.docx")
+                "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/3a Заявление в Страховую ФЛ собственник с эвакуатором.docx",
+                f"clients/{data['client_id']}/Документы/3a Заявление в Страховую ФЛ собственник с эвакуатором.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -474,8 +474,8 @@ def edit_files(files, data):
                 str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
                 str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
                 str(data["number_insurance"]), str(data["city"]), str(datetime.now().strftime("%d.%m.%Y")), str(data["city_birth"])],
-                "Шаблоны\\1. ДТП\\1. На ремонт\\3. Заявление в страховую после ДТП\\3b Заявление в Страховую ФЛ собственник без эвакуатора.docx",
-                f"clients\\{data['client_id']}\\Документы\\3b Заявление в Страховую ФЛ собственник без эвакуатора.docx")
+                "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/3b Заявление в Страховую ФЛ собственник без эвакуатора.docx",
+                f"clients/{data['client_id']}/Документы/3b Заявление в Страховую ФЛ собственник без эвакуатора.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -497,8 +497,8 @@ def edit_files(files, data):
                                     str(data["date_Na_ins"]), str(data["date_sto_main"]),
                                     str(data["time_sto_main"]), str(data["address_sto_main"]), str(data["number"]),
                                     str(data["data_dop_osm"])],
-                                    "Шаблоны\\1. ДТП\\1. На ремонт\\4. Заявление о проведении доп осмотра\\4. Заявление о проведении дополнительного осмотра автомобиля представитель.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"4. Заявление о проведении дополнительного осмотра автомобиля представитель.docx")
+                                    "Шаблоны/1. ДТП/1. На ремонт/4. Заявление о проведении доп осмотра/4. Заявление о проведении дополнительного осмотра автомобиля представитель.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"4. Заявление о проведении дополнительного осмотра автомобиля представитель.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -517,8 +517,8 @@ def edit_files(files, data):
                                     str(data["date_Na_ins"]), str(data["date_sto_main"]),
                                     str(data["time_sto_main"]), str(data["address_sto_main"]), str(data["number"]),
                                     str(data["data_dop_osm"])],
-                                    "Шаблоны\\1. ДТП\\1. На ремонт\\4. Заявление о проведении доп осмотра\\4. Заявление о проведении дополнительного осмотра автомобиля.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"4. Заявление о проведении дополнительного осмотра автомобиля.docx")
+                                    "Шаблоны/1. ДТП/1. На ремонт/4. Заявление о проведении доп осмотра/4. Заявление о проведении дополнительного осмотра автомобиля.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"4. Заявление о проведении дополнительного осмотра автомобиля.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -536,8 +536,8 @@ def edit_files(files, data):
                             str(data["date_dtp"]), str(data["time_dtp"]), 
                             str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), 
                             str(data["marks_culp"]), str(data["number_auto_culp"]), str(data["number"])],
-                            "Шаблоны\\1. ДТП\\1. На ремонт\\5. Запрос в страховую о выдаче акта и расчета\\5. Запрос в страховую о выдаче акта и расчёта представитель.docx",
-                                "clients\\"+str(data["client_id"])+"\\Документы\\"+"5. Запрос в страховую о выдаче акта и расчёта представитель.docx")
+                            "Шаблоны/1. ДТП/1. На ремонт/5. Запрос в страховую о выдаче акта и расчета/5. Запрос в страховую о выдаче акта и расчёта представитель.docx",
+                                "clients/"+str(data["client_id"])+"/Документы/"+"5. Запрос в страховую о выдаче акта и расчёта представитель.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -553,8 +553,8 @@ def edit_files(files, data):
                             str(data["when_pasport"]), str(data["date_dtp"]), str(data["time_dtp"]), 
                             str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]), 
                             str(data["marks_culp"]), str(data["number_auto_culp"]), str(data["fio_k"]), str(data["number"])],
-                            "Шаблоны\\1. ДТП\\1. На ремонт\\5. Запрос в страховую о выдаче акта и расчета\\5. Запрос в страховую о выдаче акта и расчёта.docx",
-                                "clients\\"+str(data["client_id"])+"\\Документы\\"+"5. Запрос в страховую о выдаче акта и расчёта.docx")
+                            "Шаблоны/1. ДТП/1. На ремонт/5. Запрос в страховую о выдаче акта и расчета/5. Запрос в страховую о выдаче акта и расчёта.docx",
+                                "clients/"+str(data["client_id"])+"/Документы/"+"5. Запрос в страховую о выдаче акта и расчёта.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -577,8 +577,8 @@ def edit_files(files, data):
                                     str(data["insurance"]), str(data["date_dtp"]), str(data["time_dtp"]),str(data["address_dtp"]), 
                                     str(data["date_sto"]), str(data["marks"]), str(data["car_number"]), str(data["date_zayav_sto"]),str(data["fio_k"]),
                                     str(data["date_ins"]), str(data["number"])],
-                                    "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО отказала\\6. Заявление в СТО представитель.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"6. Заявление в СТО представитель.docx")
+                                    "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/6. Заявление в СТО представитель.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"6. Заявление в СТО представитель.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -597,8 +597,8 @@ def edit_files(files, data):
                                     str(data["insurance"]), str(data["date_dtp"]), str(data["time_dtp"]),str(data["address_dtp"]), 
                                     str(data["date_sto"]), str(data["marks"]), str(data["car_number"]), str(data["date_zayav_sto"]),str(data["fio_k"]),
                                     str(data["date_ins"]), str(data["number"])],
-                                    "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО отказала\\6. Заявление в СТО.docx",
-                                    "clients\\"+str(data["client_id"])+"\\Документы\\"+"6. Заявление в СТО.docx")
+                                    "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/6. Заявление в СТО.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"6. Заявление в СТО.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -619,8 +619,8 @@ def edit_files(files, data):
                                 str(data["date_ins_pod"]), str(data["org_exp"]), str(data["Na_ins"]),str(data["date_exp"]),
                                 str(data["coin_exp"]), str(data["coin_exp_izn"]),str(data["date_pret"]),
                                 str(data["data_pret_otv"]), str(data["coin_osago"]),str(data["fio_k"]), str(data["Nv_ins"])],
-                                "Шаблоны\\1. ДТП\\1. На ремонт\\Выплата без согласования\\7. Заявление фин. омбудсмену при выплате без согласования.docx",
-                                "clients\\"+str(data["client_id"])+"\\Документы\\"+"7. Заявление фин. омбудсмену при выплате без согласования.docx")
+                                "Шаблоны/1. ДТП/1. На ремонт/Выплата без согласования/7. Заявление фин. омбудсмену при выплате без согласования.docx",
+                                "clients/"+str(data["client_id"])+"/Документы/"+"7. Заявление фин. омбудсмену при выплате без согласования.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -645,8 +645,8 @@ def edit_files(files, data):
                             str(data["data_pret_prin"]),str(data["N_pret_prin"]),str(data["date_pret"]),str(data["bank"]),str(data["bank_account"]),
                             str(data["bank_account_corr"]),str(data["BIK"]),str(data["INN"]),str(data["fio_k"]), str(data["org_exp"]),str(data["Na_ins"]),
                             str(data["date_exp"]), str(data["coin_exp"]), str(data["coin_exp_izn"]), str(data["city"])],
-                            "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО отказала\\8. Заявление фин. омбуцмену СТО отказала.docx",
-                            "clients\\"+str(data["client_id"])+"\\Документы\\"+"8. Заявление фин. омбуцмену СТО отказала.docx")
+                            "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/8. Заявление фин. омбуцмену СТО отказала.docx",
+                            "clients/"+str(data["client_id"])+"/Документы/"+"8. Заявление фин. омбуцмену СТО отказала.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -672,8 +672,8 @@ def edit_files(files, data):
                             str(data["data_pret_prin"]),str(data["N_pret_prin"]),str(data["date_pret"]),str(data["bank"]),str(data["bank_account"]),
                             str(data["bank_account_corr"]),str(data["BIK"]),str(data["INN"]),str(data["fio_k"]), str(data["org_exp"]),str(data["Na_ins"]),
                             str(data["date_exp"]), str(data["coin_exp"]), str(data["coin_exp_izn"]), str(data["city"]), str(data["city_sto"])],
-                            "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО свыше 50км\\7. Заявление фин. омбудсмену СТО свыше 50 км.docx",
-                            "clients\\"+str(data["client_id"])+"\\Документы\\"+"7. Заявление фин. омбудсмену СТО свыше 50 км.docx")
+                            "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО свыше 50км/7. Заявление фин. омбудсмену СТО свыше 50 км.docx",
+                            "clients/"+str(data["client_id"])+"/Документы/"+"7. Заявление фин. омбудсмену СТО свыше 50 км.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -692,8 +692,8 @@ def edit_files(files, data):
                                                 str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
                                                 str(data["org_exp"]), str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]),
                                                 str(data["coin_osago"]), str(datetime.now().strftime("%d.%m.%Y"))],
-                                                "Шаблоны\\1. ДТП\\1. На ремонт\\Выплата без согласования\\6. Претензия в страховую Выплата без согласования.docx",
-                                                "clients\\"+str(data["client_id"])+"\\Документы\\"+"6. Претензия в страховую Выплата без согласования.docx")
+                                                "Шаблоны/1. ДТП/1. На ремонт/Выплата без согласования/6. Претензия в страховую Выплата без согласования.docx",
+                                                "clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия в страховую Выплата без согласования.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -712,8 +712,8 @@ def edit_files(files, data):
                                                 str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
                                                 str(data["date_napr_sto"]), str(data["N_sto"]), str(data["date_sto"]),str(data["name_sto"]),
                                                 str(data["data_otkaz_sto"]), str(data["date_pret"]), str(data["city"]), str(data["marks"]),str(data["car_number"])],
-                                                "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО отказала\\7. Претензия в страховую СТО отказала.docx",
-                                                "clients\\"+str(data["client_id"])+"\\Документы\\"+"7. Претензия в страховую СТО отказала.docx")
+                                                "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/7. Претензия в страховую СТО отказала.docx",
+                                                "clients/"+str(data["client_id"])+"/Документы/"+"7. Претензия в страховую СТО отказала.docx")
             except Exception as e:
                 print(e)
                 print(i)
@@ -733,8 +733,8 @@ def edit_files(files, data):
                                                 str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
                                                 str(data["date_napr_sto"]), str(data["N_sto"]), str(data["name_sto"]),str(data["index_sto"]),str(data["address_sto"]),
                                                 str(data["city_sto"]), str(data["N_sto"]), str(data["date_napr_sto"]), str(data["marks"]),str(data["car_number"]), str(data["date_pret"])],
-                                                "Шаблоны\\1. ДТП\\1. На ремонт\\Ремонт не произведен СТО свыше 50км\\6. Претензия в страховую  СТО свыше 50 км.docx",
-                                                "clients\\"+str(data["client_id"])+"\\Документы\\"+"6. Претензия в страховую  СТО свыше 50 км.docx")
+                                                "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО свыше 50км/6. Претензия в страховую  СТО свыше 50 км.docx",
+                                                "clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия в страховую  СТО свыше 50 км.docx")
             except Exception as e:
                 print(e)
                 print(i)

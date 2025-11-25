@@ -7,9 +7,66 @@ from database import DatabaseManager, get_admin_from_db_by_user_id, get_agent_fi
 import base64
 from client_agent import setup_client_agent_handlers
 from client import setup_client_handlers
+import threading
+import time
+from functools import wraps
+
+# Словарь для отслеживания активных обработок
+active_callbacks = {}
+callback_lock = threading.Lock()
+
+def prevent_double_click(timeout=2.0):
+    """
+    Декоратор для предотвращения повторных нажатий на inline-кнопки
+    timeout - время в секундах, в течение которого повторные нажатия игнорируются
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(call):
+            user_id = call.from_user.id
+            callback_data = call.data
+            
+            # Создаем уникальный ключ для этой комбинации пользователь+кнопка
+            key = f"{user_id}_{callback_data}"
+            
+            with callback_lock:
+                current_time = time.time()
+                
+                # Проверяем, не обрабатывается ли уже этот callback
+                if key in active_callbacks:
+                    last_time = active_callbacks[key]
+                    if current_time - last_time < timeout:
+                        # Слишком быстрое повторное нажатие - игнорируем
+                        bot.answer_callback_query(
+                            call.id, 
+                            "⏳ Пожалуйста, подождите...", 
+                            show_alert=False
+                        )
+                        return
+                
+                # Отмечаем начало обработки
+                active_callbacks[key] = current_time
+            
+            try:
+                # Сразу отвечаем на callback, чтобы убрать "часики"
+                bot.answer_callback_query(call.id)
+                
+                # Выполняем основную функцию
+                return func(call)
+            finally:
+                # Через timeout секунд разрешаем повторное нажатие
+                def cleanup():
+                    time.sleep(timeout)
+                    with callback_lock:
+                        if key in active_callbacks:
+                            del active_callbacks[key]
+                
+                threading.Thread(target=cleanup, daemon=True).start()
+        
+        return wrapper
+    return decorator
 # Инициализация бота
 bot = telebot.TeleBot(config.TOKEN)
-
 
 # Глобальный словарь для временных данных пользователей
 user_temp_data = {}
@@ -20,7 +77,7 @@ def cleanup_messages(bot, chat_id, message_id, count):
     """Удаляет последние N сообщений"""
     for i in range(count):
         try:
-            bot.delete_message(chat_id, message_id - i)
+            bot.delete_message(chat_id, message_id+1 - i)
         except:
             pass
 @bot.message_handler(commands=['start'])
@@ -40,7 +97,7 @@ def start_handler(message):
         print(f"DEBUG START: Получен параметр: {param}")
         
         # Проверяем, что это ссылка-приглашение
-        if param.startswith('invagent_') or param.startswith('invclient_'):
+        if param.startswith('invagent_') or param.startswith('invclient_') or param.startswith('invadmin_'):
             print(f"DEBUG START: Это ссылка-приглашение!")
             is_registered = db.check_admin_exists(user_id)
 
@@ -64,7 +121,7 @@ def start_handler(message):
                     bot.send_message(user_id, "❌ Ошибка: данные не найдены в базе")
                     return
                 
-                if invite_type == 'invagent':
+                if invite_type == 'invagent' or invite_type == 'invadmin':
                     # Проверяем, не привязан ли уже клиент к другому агенту
                     with db.get_connection() as conn:
                         with conn.cursor() as cursor:
@@ -210,8 +267,13 @@ def start_handler(message):
                         else:
                             city = ''
                         client_phone = ''
-                    
-                    inviter_type = 'agent' if invite_type == 'invagent' else 'client'
+                    if invite_type == 'invagent':
+                        inviter_type = 'agent'
+                    elif invite_type == 'invadmin':
+                        inviter_type = 'admin'
+                    else:
+                        inviter_type = 'client'
+         
                     
                     print(f"DEBUG START: Обработка приглашения")
                     print(f"  - Inviter type: {inviter_type}")
@@ -219,10 +281,14 @@ def start_handler(message):
                     print(f"  - Client FIO: {client_fio}")
                     print(f"  - Client phone: {client_phone}")
                     print(f"  - City: {city}")
-                    
+                    if len(client_fio.split()) == 2:
+                        client_fio_k = client_fio.split()[0] + " " + list(client_fio.split()[1])[0] + "."
+                    else:
+                        client_fio_k = client_fio.split()[0] + " " + list(client_fio.split()[1])[0] + "." + list(client_fio.split()[2])[0] + "."
                     # Сохраняем данные приглашения
                     user_temp_data[user_id] = {
                         'fio': client_fio,
+                        'fio_k': client_fio_k,
                         'number': client_phone,
                         'city_admin': city,
                         'invited_by_user_id': inviter_id,
@@ -234,29 +300,30 @@ def start_handler(message):
                     
                     # Показываем согласие на обработку данных
                     keyboard = types.InlineKeyboardMarkup()
-                    btn_yes = types.InlineKeyboardButton("✅ Да", callback_data="consent_invited_yes")
-                    btn_no = types.InlineKeyboardButton("❌ Нет", callback_data="consent_invited_no")
+                    btn_yes = types.InlineKeyboardButton("✅ Подтвердить", callback_data="consent_invited_yes")
+                    btn_no = types.InlineKeyboardButton("❌ Отклонить", callback_data="consent_invited_no")
                     keyboard.add(btn_yes, btn_no)
                     agent_fio = get_agent_fio_by_id(inviter_id)
-                    invite_text = f"Вас приветствует Помощник Юриста👋\n\nЯ бот-проводник по Вашим правам.\n\nПопали в ДТП? Я и моя команда профессиональных Юристов помогут Вам получить полную компенсацию восстановления Вашего автомобиля.\n\n"
                     if inviter_type == 'agent':
-                        invite_text += f"Вас пригласил агент {agent_fio}.\n"
+                        invite_text = f"Вас пригласил агент {agent_fio}.\n\n"
                     elif inviter_type == 'admin':
-                        invite_text += f"Вас пригласил администратор {agent_fio}.\n"
+                        invite_text = f"Вас пригласил администратор {agent_fio}.\n\n"
                     else:
-                        invite_text += f"Вас пригласил клиент {agent_fio}.\n"
+                        invite_text = f"Вас пригласил клиент {agent_fio}.\n\n"
                     invite_text += f"👤 ФИО: {client_fio}\n"
                     if client_phone:
                         invite_text += f"📱 Телефон: {client_phone}\n"
                     if city:
-                        invite_text += f"🏙 Город: {city}\n"
-                    invite_text += f"\nВы даете согласие на обработку персональных данных?"
-                    
-                    bot.send_message(
-                        message.chat.id,
-                        invite_text,
-                        reply_markup=keyboard
-                    )
+                        invite_text += f"🌆 Город: {city}\n\n"
+
+                    invite_text += f"Моя задача — собрать ваши личные данные для передачи команде Юристов.\n\nСейчас Вам поступит предложение подписать «Согласие на обработку персональных данных». Ознакомьтесь с документом и подтвердите его."
+                    # Отправляем PDF документ
+                    try:
+                        with open("Согласие на обработку персональных данных.pdf", "rb") as pdf_file:
+                            bot.send_document(message.chat.id, pdf_file, caption=invite_text, reply_markup=keyboard)
+                        bot.delete_message(message.chat.id, message.message_id)
+                    except FileNotFoundError:
+                        bot.send_message(message.chat.id, invite_text + "\n\n⚠️ Файл соглашения не найден", reply_markup=keyboard)
                     print(f"DEBUG START: Сообщение с согласием отправлено!")
                     return
                     
@@ -288,7 +355,7 @@ def show_registration_button(bot, message):
     
     bot.send_message(
         message.chat.id,
-        "Вас приветствует Помощник Юриста👋\n\nЯ бот-проводник по Вашим правам.\n\nПопали в ДТП? Я и моя команда профессиональных Юристов помогут Вам получить полную компенсацию восстановления Вашего автомобиля.\n\nДля дальнейшей работы с Помощником необходимо зарегистрироваться👇",
+        "Сейчас Вы находитесь в боте «Помощник юриста», который поможет:\n- Заключить договор на полное сопровождение - от подачи заявления в страховую компанию (СК) до получения полной компенсации согласно Федеральному закону № 40 «Об ОСАГО».\n- Сформировать заявления по форме страховой компании.\n- Освободить ваше личное время, взяв на себя напоминания, формирование документов и связь с юристами.\nБот будет направлять Вас и подсказывать дальнейшие шаги при выборе определённых параметров.\n\nПорядок работы:\n1. Регистрация в боте (мы строго соблюдаем конфиденциальность ваших паспортных данных).\n2. Сбор информации (вы вносите данные сами или с помощью нашего аварийного комиссара).\n3. Разработка стратегии (после ответа от страховой компании мы определяем лучший путь действий).\n4. Работа юриста (подготовка всех документов и взаимодействие с инстанциями).\n5. Защита ваших интересов в суде (если это потребуется).\n\nУсловия работы:\n- Стоимость услуг — 25 000 ₽ + 50% от суммы взысканных судом неустойки и штрафа.\n- Для представления ваших интересов потребуется нотариальная доверенность.\n- Мы гарантируем успешный результат при условии следования нашим рекомендациям.\n- В случае суда все расходы (наши услуги, эвакуатор, экспертиза) взыскиваются со страховой компании.\n\nВы можете стать нашим клиентом.",
         reply_markup=keyboard
     )
 
@@ -362,6 +429,7 @@ def callback_start_handler(call):
 
 
 @bot.message_handler(commands=['clear'])
+@prevent_double_click(timeout=3.0)
 def clear_handler(message):
     """Очистка временных данных пользователя"""
     user_id = message.from_user.id
@@ -405,20 +473,22 @@ if __name__ == '__main__':
     # Импортируем и регистрируем обработчики из других модулей
     from registr import setup_registration_handlers
     from main_menu import setup_main_menu_handlers
-    from cpr import setup_pretenziya_handlers
+
     from net_osago import setup_net_osago_handlers
     from podal_z import setup_podal_z_handlers
-
+    from workers.appraiser import setup_appraiser_handlers
+    from workers.pret_department import setup_pret_department_handlers
+    
     setup_podal_z_handlers(bot, user_temp_data)
     setup_registration_handlers(bot, user_temp_data)
     setup_main_menu_handlers(bot, user_temp_data)
     setup_client_agent_handlers(bot, user_temp_data)
     setup_client_handlers(bot, user_temp_data)
-    setup_pretenziya_handlers(bot, user_temp_data)
+    setup_appraiser_handlers(bot, user_temp_data)
+    setup_pret_department_handlers(bot, user_temp_data)
     setup_net_osago_handlers(bot, user_temp_data)
     try:
         bot.infinity_polling(none_stop=True, timeout=60)
     except Exception as e:
         print(f"❌ Ошибка при работе бота: {e}")
-
 

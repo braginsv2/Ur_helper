@@ -62,12 +62,14 @@ def check_2_weeks_after_application(bot):
                                 from telebot import types
                                 keyboard = types.InlineKeyboardMarkup()
                                 keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
-
-                                bot.send_message(
-                                    int(agent_id),
-                                    f"ℹ️ Прошло 14 дней после составления заявления в страховую по договору номер {client_id} для {client_fio}",
-                                    reply_markup=keyboard
-                                )
+                                try:
+                                    bot.send_message(
+                                        int(agent_id),
+                                        f"ℹ️ Прошло 14 дней после составления заявления в страховую по договору номер {client_id} для {client_fio}",
+                                        reply_markup=keyboard
+                                    )
+                                except:
+                                    pass    
                             else:
                                 # Клиент сам зарегистрировался - отправляем вопрос клиенту
                                 from telebot import types
@@ -75,14 +77,16 @@ def check_2_weeks_after_application(bot):
                                 btn_yes = types.InlineKeyboardButton("✅ Да", callback_data=f"dop_osm_yes_{client_id}")
                                 btn_no = types.InlineKeyboardButton("❌ Нет", callback_data=f"dop_osm_no_{client_id}")
                                 keyboard.add(btn_yes, btn_no)
-                                
-                                bot.send_message(
-                                    int(user_id),
-                                    f"❓ Прошло 2 недели после подачи заявления в страховую.\n\n"
-                                    f"Необходим ли доп осмотр автомобиля?",
-                                    reply_markup=keyboard
-                                )
-                                print(f"Отправлено сообщение о доп осмотре клиенту {user_id}")
+                                try:
+                                    bot.send_message(
+                                        int(user_id),
+                                        f"❓ Прошло 2 недели после подачи заявления в страховую.\n\n"
+                                        f"Необходим ли доп осмотр автомобиля?",
+                                        reply_markup=keyboard
+                                    )
+                                    print(f"Отправлено сообщение о доп осмотре клиенту {user_id}")
+                                except:
+                                    pass
                             
                             # Отмечаем что спросили
                             cursor.execute("""
@@ -147,12 +151,14 @@ def check_20_days_after_application(bot):
                                 from telebot import types
                                 keyboard = types.InlineKeyboardMarkup()
                                 keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
-
-                                bot.send_message(
-                                    int(agent_id),
-                                    f"ℹ️ Прошло 20 дней после составления заявления в страховую по договору номер {client_id} для {client_fio}",
-                                    reply_markup=keyboard
-                                )
+                                try:
+                                    bot.send_message(
+                                        int(agent_id),
+                                        f"ℹ️ Прошло 20 дней после составления заявления в страховую по договору номер {client_id} для {client_fio}",
+                                        reply_markup=keyboard
+                                    )
+                                except:
+                                    pass
                             else:
                                 # Клиент сам зарегистрировался - отправляем вопрос клиенту
                                 from telebot import types
@@ -162,12 +168,15 @@ def check_20_days_after_application(bot):
                                 btn_net_osago = types.InlineKeyboardButton("📋 У виновника ДТП Нет ОСАГО", callback_data=f"NoOsago_prod_{client_id}")
                                 keyboard.add(btn_yes, btn_no)
                                 keyboard.add(btn_net_osago)
-                                bot.send_message(
-                                    int(user_id),
-                                    f"❓ Прошло 20 дней после подачи заявления в страховую.\n\n"
-                                    f"Есть ли ответ от страховой?",
-                                    reply_markup=keyboard
-                                )
+                                try:
+                                    bot.send_message(
+                                        int(user_id),
+                                        f"❓ Прошло 20 дней после подачи заявления в страховую.\n\n"
+                                        f"Есть ли ответ от страховой?",
+                                        reply_markup=keyboard
+                                    )
+                                except:
+                                    pass
                                 print(f"Отправлено сообщение об ответе страховой клиенту {user_id}")
                             
                             # Отмечаем что спросили
