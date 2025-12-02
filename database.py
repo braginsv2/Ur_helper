@@ -9,7 +9,6 @@ import random
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
-
 class DatabaseManager:
     def __init__(self, connection_params=None):
         """Инициализация базы данных PostgreSQL"""
@@ -2373,6 +2372,7 @@ def get_agent_fio_by_id(agent_id):
             result = cursor.fetchone()
 
             return result[0] if result else "Неизвестный агент"
+
 
 
 
