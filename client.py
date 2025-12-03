@@ -23,6 +23,7 @@ active_callbacks = {}
 callback_lock = threading.Lock()
 db = DatabaseManager()
 
+
 insurance_companies = [
     ('АО "Согаз"', "SOGAZ_client"),
     ('ПАО СК "Росгосстрах"', "Ros_client"),
@@ -5032,4 +5033,5 @@ def cleanup_messages(bot, chat_id, message_id, count):
         try:
             bot.delete_message(chat_id, message_id - i)
         except:
+
             pass
