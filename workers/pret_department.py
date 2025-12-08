@@ -9,7 +9,8 @@ from datetime import datetime
 from database import (
     DatabaseManager,
     get_client_from_db_by_client_id,
-    save_client_to_db_with_id
+    save_client_to_db_with_id,
+    get_admin_from_db_by_user_id
 )
 from word_utils import create_fio_data_file, replace_words_in_word, get_next_business_date
 import threading
@@ -73,6 +74,116 @@ def setup_pret_department_handlers(bot, user_temp_data):
             
             return wrapper
         return decorator
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("create_docs_pret_department"))
+    @prevent_double_click(timeout=3.0)
+    def pret_department_contracts_handler(call):
+        """Список договоров для претензионного отдела"""
+        user_id = call.from_user.id
+        
+        # Парсим страницу из callback_data (например, create_docs_pret_department_0)
+        if "_" in call.data and call.data.split("_")[-1].isdigit():
+            page = int(call.data.split("_")[-1])
+        else:
+            page = 0
+        
+        # Получаем договоры со статусом "Ожидание претензии" или "Составлена претензия"
+        from database import DatabaseManager
+        db = DatabaseManager()
+        
+        try:
+            with db.get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute("""
+                        SELECT client_id, fio, created_at, status, accident
+                        FROM clients
+                        WHERE status IN ('Ожидание претензии', 'Составлена претензия')
+                        ORDER BY created_at DESC
+                    """)
+                    all_contracts = cursor.fetchall()
+        except Exception as e:
+            print(f"Ошибка получения договоров для претензионного отдела: {e}")
+            bot.answer_callback_query(call.id, "❌ Ошибка загрузки договоров", show_alert=True)
+            return
+        
+        if not all_contracts:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="📋 Нет договоров для работы претензионного отдела",
+                reply_markup=keyboard
+            )
+            return
+        
+        # Пагинация
+        contracts_per_page = 5
+        total_contracts = len(all_contracts)
+        total_pages = (total_contracts + contracts_per_page - 1) // contracts_per_page
+        
+        # Проверяем валидность страницы
+        if page < 0:
+            page = 0
+        elif page >= total_pages:
+            page = total_pages - 1
+        
+        start_idx = page * contracts_per_page
+        end_idx = start_idx + contracts_per_page
+        page_contracts = all_contracts[start_idx:end_idx]
+        
+        # Формируем текст
+        text = f"📝 <b>Договоры для претензионного отдела</b>\n"
+        text += f"Всего договоров: {total_contracts}\n\n"
+        
+        for i, contract in enumerate(page_contracts, start=start_idx + 1):
+            client_id = contract['client_id']
+            fio = contract['fio']
+            created_at = contract['created_at'][:10] if contract['created_at'] else 'н/д'
+            status = contract.get('status', 'В обработке')
+            
+            text += f"<b>{i}. Договор {client_id}</b>\n"
+            text += f"   👤 {fio}\n"
+            text += f"   📅 {created_at}\n"
+            text += f"   📊 {status}\n\n"
+        
+        # Создаем клавиатуру
+        keyboard = types.InlineKeyboardMarkup()
+        
+        # Кнопки для выбора договора (по 5 в ряд)
+        buttons = []
+        for i, contract in enumerate(page_contracts, start=start_idx + 1):
+            btn = types.InlineKeyboardButton(
+                f"{i}",
+                callback_data=f"pret_view_contract_{contract['client_id']}"
+            )
+            buttons.append(btn)
+            
+            if len(buttons) == 5 or i == start_idx + len(page_contracts):
+                keyboard.row(*buttons)
+                buttons = []
+        
+        # Навигация
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_docs_pret_department_{page - 1}"))
+        
+        if page < total_pages - 1:
+            nav_buttons.append(types.InlineKeyboardButton("Далее ▶️", callback_data=f"create_docs_pret_department_{page + 1}"))
+        
+        if nav_buttons:
+            keyboard.row(*nav_buttons)
+        
+        # Кнопка главного меню
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=keyboard,
+            parse_mode='HTML'
+        )
     @bot.callback_query_handler(func=lambda call: call.data == "btn_search_database_pret")
     @prevent_double_click(timeout=3.0)
     def callback_search_database(call):
@@ -277,7 +388,6 @@ def setup_pret_department_handlers(bot, user_temp_data):
         """Начало составления претензии"""
         user_id = call.from_user.id
         client_id = call.data.replace("create_pretenziya_", "")
-        
         # Загружаем данные клиента
         contract = get_client_from_db_by_client_id(client_id)
         
@@ -297,80 +407,208 @@ def setup_pret_department_handlers(bot, user_temp_data):
         # Проверяем наличие необходимых документов
         payment_confirmed = data.get('payment_confirmed', '') == 'Yes'
         doverennost_confirmed = data.get('doverennost_confirmed', '') == 'Yes'
-        
-        if not payment_confirmed or not doverennost_confirmed:
+        calc_confirmed = data.get('calculation', '') == 'Загружена'
+        if not payment_confirmed or not doverennost_confirmed or not calc_confirmed:
             missing = []
             if not payment_confirmed:
                 missing.append("документ об оплате")
             if not doverennost_confirmed:
                 missing.append("нотариальная доверенность")
-            
+            if not calc_confirmed:
+                missing.append("калькуляцию")
             bot.answer_callback_query(
                 call.id, 
                 f"❌ Для составления претензии необходимо загрузить: {', '.join(missing)}", 
                 show_alert=True
             )
             return
-        
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
         # Сохраняем данные в user_temp_data
         if user_id not in user_temp_data:
             user_temp_data[user_id] = {}
-        
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
         user_temp_data[user_id]['pretenziya_data'] = data
         user_temp_data[user_id]['client_id'] = client_id
         user_temp_data[user_id]['client_user_id'] = data.get('user_id')
+        if data.get('coin_osago', '0') == '':
+            data.update({'coin_osago': '0'})
+
         if data["vibor"] == "vibor1":
-            if data.get("Nv_ins", '') != '':
-                msg = bot.send_message(call.message.chat.id, text="Введите дату экспертного заключения")
+            if data.get("dop_osm", '') == 'Yes':
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                msg = bot.send_message(call.message.chat.id, text="Введите дату ответа от страховой", reply_markup = keyboard)
                 user_message_id = msg.message_id
-                bot.register_next_step_handler(msg, date_exp, data, user_message_id)
+                bot.register_next_step_handler(msg, date_ins_otv, data, user_message_id)
             else:
-                msg = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                msg = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую", reply_markup = keyboard)
                 user_message_id = msg.message_id
                 bot.register_next_step_handler(msg, Nv_ins, data, user_message_id)
         elif data["vibor"] == "vibor2":
-            if data.get("Nv_ins", '') != '':
-                msg = bot.send_message(call.message.chat.id, text="Введите дату направления на СТО (ДД.ММ.ГГГГ)")
+            if data.get("dop_osm", '') == 'Yes':
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                msg = bot.send_message(call.message.chat.id, text="Введите дату отказа СТО (ДД.ММ.ГГГГ)", reply_markup = keyboard)
                 user_message_id = msg.message_id
-                bot.register_next_step_handler(msg, date_napr_sto, data, user_message_id)
+                bot.register_next_step_handler(msg, data_otkaz_sto, data, user_message_id)
             else:
-                msg = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
-                user_message_id = msg.message_id
-                bot.register_next_step_handler(msg, Nv_ins, data, user_message_id)
-        elif data["vibor"] == "vibor4":
-            if data.get("Nv_ins", '') != '':
-                msg = bot.send_message(call.message.chat.id, text="Введите дату направления на СТО (ДД.ММ.ГГГГ)")
-                user_message_id = msg.message_id
-                bot.register_next_step_handler(msg, date_napr_sto, data, user_message_id)
-            else:
-                msg = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую")
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                msg = bot.send_message(call.message.chat.id, text="Введите входящий номер в страховую", reply_markup = keyboard)
                 user_message_id = msg.message_id
                 bot.register_next_step_handler(msg, Nv_ins, data, user_message_id)
 
+
+        elif data["vibor"] == "vibor3":
+            if data.get("dop_osm", '') == 'Yes':
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                message = bot.send_message(
+                    message.chat.id,
+                    "Введите дату ответа от страховой в формате ДД.ММ.ГГГГ", reply_markup = keyboard
+                    )
+                user_message_id = message.message_id
+                bot.register_next_step_handler(message, date_ins_otv, data, user_message_id)
+            else:
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                msg = bot.send_message(call.message.chat.id, text="Введите номер акта осмотра ТС", reply_markup = keyboard)
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, Na_ins, data, user_message_id)
+
+        elif data["vibor"] == "vibor4":
+            if data.get("dop_osm", '') == 'Yes':
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                msg = bot.send_message(call.message.chat.id, text="Введите дату ответа страховой в формате ДД.ММ.ГГГГ", reply_markup = keyboard)
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, date_ins_otv, data, user_message_id)
+            else:
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                msg = bot.send_message(call.message.chat.id, text="Введите номер акта осмотра ТС", reply_markup = keyboard)
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, Na_ins, data, user_message_id)
+
+        elif data["vibor"] == "vibor5":
+            if data.get("dop_osm", '') == 'Yes':
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                message = bot.send_message(
+                    message.chat.id,
+                    "Введите дату ответа от страховой в формате ДД.ММ.ГГГГ", reply_markup = keyboard
+                    )
+                user_message_id = message.message_id
+                bot.register_next_step_handler(message, date_ins_otv, data, user_message_id)
+            else:
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                msg = bot.send_message(call.message.chat.id, text="Введите номер акта осмотра ТС", reply_markup = keyboard)
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, Na_ins, data, user_message_id)
+
     def Nv_ins(message, data, user_message_id):
+        user_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
         except:
             pass
-
         data.update({"Nv_ins": message.text})
-        msg = bot.send_message(message.chat.id, text="Введите номер акта осмотра ТС")
+        if data['vibor'] == 'vibor4':
+            if not user_id in user_temp_data:
+                user_temp_data[user_id] = {}
+            user_temp_data[user_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_Nv_ins")) 
+            msg = bot.send_message(message.chat.id, text="Введите дату ответа страховой в формате ДД.ММ.ГГГГ", reply_markup = keyboard)
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_ins_otv, data, user_message_id)
+        elif data['vibor'] in ['vibor1', 'vibor2']:
+            if not user_id in user_temp_data:
+                user_temp_data[user_id] = {}
+            user_temp_data[user_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}")) 
+            msg = bot.send_message(message.chat.id, text="Введите номер акта осмотра ТС", reply_markup = keyboard)
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, Na_ins, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_Nv_ins")
+    @prevent_double_click(timeout=3.0)
+    def back_to_Nv_ins(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}"))
+        
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите номер акта осмотра ТС",
+            reply_markup=keyboard
+        )
         user_message_id = msg.message_id
         bot.register_next_step_handler(msg, Na_ins, data, user_message_id)
 
     def Na_ins(message, data, user_message_id):
+        user_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
         except:
             pass
         data.update({"Na_ins": message.text})
-        msg = bot.send_message(message.chat.id, text="Введите дату акта осмотра ТС в формате ДД.ММ.ГГГГ")
-        user_message_id = msg.message_id
-        bot.register_next_step_handler(msg, date_Na_ins, data, user_message_id)
-    
+        if data['vibor'] in ['vibor3', 'vibor5']:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}"))
+            message = bot.send_message(
+                    message.chat.id,
+                    "Введите дату ответа от страховой в формате ДД.ММ.ГГГГ", reply_markup = keyboard
+                    )
+            user_message_id = message.message_id
+            bot.register_next_step_handler(message, date_ins_otv, data, user_message_id)
+        elif data['vibor'] == 'vibor4':
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}"))
+            msg = bot.send_message(message.chat.id, text="Введите входящий номер в страховую", reply_markup = keyboard)
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, Nv_ins, data, user_message_id)
+        elif data['vibor'] in ['vibor1', 'vibor2']:
+            user_temp_data[user_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_Nv_ins"))
+            msg = bot.send_message(message.chat.id, text="Введите дату акта осмотра ТС в формате ДД.ММ.ГГГГ", reply_markup = keyboard)
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_Na_ins, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_Na_ins")
+    @prevent_double_click(timeout=3.0)
+    def back_to_Na_ins(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        user_temp_data[user_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}"))
+        
+        message = bot.send_message(
+            message.chat.id,
+            "Введите дату ответа от страховой в формате ДД.ММ.ГГГГ", reply_markup = keyboard
+            )
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, date_ins_otv, data, user_message_id)
+
     def date_Na_ins(message, data, user_message_id):
+        user_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -380,223 +618,335 @@ def setup_pret_department_handlers(bot, user_temp_data):
             datetime.strptime(message.text, "%d.%m.%Y")
             data.update({"date_Na_ins": message.text})
             if data["vibor"] == "vibor1":
-                msg = bot.send_message(message.chat.id, text="Введите дату экспертного заключения (ДД.ММ.ГГГГ)")
+                user_temp_data[user_id] = data
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_Na_ins"))
+                msg = bot.send_message(message.chat.id, text="Введите дату ответа страховой в формате ДД.ММ.ГГГГ", reply_markup = keyboard)
                 user_message_id = msg.message_id
-                bot.register_next_step_handler(msg, date_exp, data, user_message_id)
-            elif data["vibor"] == "vibor2" or data["vibor"] == "vibor4":
+                bot.register_next_step_handler(msg, date_ins_otv, data, user_message_id)
+            elif data["vibor"] == "vibor4":
                 msg = bot.send_message(message.chat.id, text="Введите дату направления на СТО (ДД.ММ.ГГГГ)")
                 user_message_id = msg.message_id
                 bot.register_next_step_handler(msg, date_napr_sto, data, user_message_id)
+            elif data["vibor"] == "vibor2":
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                msg = bot.send_message(message.chat.id, text="Введите дату отказа СТО (ДД.ММ.ГГГГ)", reply_markup = keyboard)
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, data_otkaz_sto, data, user_message_id)
         except ValueError:
             msg = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату акта осмотра ТС в формате ДД.ММ.ГГГГ")
             user_message_id = msg.message_id
             bot.register_next_step_handler(msg, date_Na_ins, data, user_message_id)
 
-    def date_exp(message, data, user_message_id):
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_date_Na_ins")
+    @prevent_double_click(timeout=3.0)
+    def back_to_Na_ins(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        user_temp_data[user_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_Nv_ins"))
+        
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите дату акта осмотра ТС в формате ДД.ММ.ГГГГ",
+            reply_markup=keyboard
+        )
+        user_message_id = msg.message_id
+        bot.register_next_step_handler(msg, date_Na_ins, data, user_message_id)
+
+    def date_ins_otv(message, data, user_message_id):
+        user_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
         except:
             pass
-
         try:
             datetime.strptime(message.text, "%d.%m.%Y")
-            data.update({"date_exp": message.text})
-            message = bot.send_message(message.chat.id, text="Введите организацию, сделавшую экспертизу".format(message.from_user))
+            data.update({"date_ins_otv": message.text})
+            if data["vibor"] == "vibor1":
+                user_temp_data[user_id] = data
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_ins_otv"))
+                msg = bot.send_message(message.chat.id, text="Введите дату экспертного заключения страховой компании в фомате ДД.ММ.ГГГГ", reply_markup = keyboard)
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, date_exp_ins, data, user_message_id)
+            elif data["vibor"] == "vibor2":
+                user_temp_data[user_id] = data
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_ins_otv"))
+                msg = bot.send_message(message.chat.id, text="Введите город СТО", reply_markup = keyboard)
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, city_sto, data, user_message_id)
+            elif data["vibor"] == "vibor3":
+                data.update({"data_pret": str(get_next_business_date())})
+                data.update({"status": 'Составлена претензия'})
+                try:
+                    client_id, updated_data = save_client_to_db_with_id(data)
+                    data.update(updated_data)
+                    print(data)
+                except Exception as e:
+                    print(f"Ошибка базы данных: {e}")
+                create_fio_data_file(data)
+
+                replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
+                                                "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
+                                                "{{ Паспорт_когда }}", "{{ NДоверенности }}", "{{ Дата_доверенности }}","{{ Представитель }}","{{ Телефон_представителя }}",
+                                                "{{ Дата_заявления_форма6 }}", "{{ Серия_полиса }}", "{{ Номер_полиса }}", "{{ Nакта_осмотра }}", "{{ Выплата_ОСАГО }}", 
+                                                "{{ Дата_ответ_страховой }}", "{{ Организация }}", "{{ Номер_экспертизы }}", "{{ Дата_экспертизы }}",
+                                                "{{ Без_учета_износа }}", "{{ Утрата_стоимости }}","{{ Разница }}","{{ Дата_претензии }}"],
+                                                [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
+                                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                                    str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),
+                                                    str(data["date_ins"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["Na_ins"]), str(data.get('coin_osago', '0')),
+                                                    str(data["date_ins_otv"]), str(data["org_exp"]), str(data["n_exp"]),str(data["date_exp"]),
+                                                    str(data["coin_exp"]), str(data["coin_exp_izn"]), str(float(data["coin_exp"])+float(data["coin_exp_izn"])-float(data.get('coin_osago', '0'))), 
+                                                    str(data["data_pret"])],
+                                                    "Шаблоны/1. ДТП/1. На ремонт/У страховой нет СТО/Претензия у страховой нет СТО.docx",
+                                                    "clients/"+str(data["client_id"])+"/Документы/"+"Претензия у страховой нет СТО.docx")
+                try:
+                    with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Претензия у страховой нет СТО.docx", 'rb') as doc:
+                        keyboard = types.InlineKeyboardMarkup()
+                        keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                        bot.send_document(message.chat.id, doc, caption="📋 Претензия", reply_markup = keyboard)
+                except FileNotFoundError:
+                    bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
+                    
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
+                bot.send_message(
+                    int(data['user_id']),
+                    "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
+                    reply_markup = keyboard
+                    )
+            elif data["vibor"] == "vibor4":
+                keyboard = types.InlineKeyboardMarkup()
+                if not user_id in user_temp_data:
+                    user_temp_data[user_id] = {}
+                user_temp_data[user_id] = data
+                if data.get('dop_osm', '') == 'Yes':
+                    keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}"))
+                else:
+                    keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_ins_otv"))
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите номер направления на ремонт", reply_markup = keyboard
+                    )
+                bot.register_next_step_handler(msg, N_sto, data, msg.message_id)
+            elif data["vibor"] == "vibor5":
+                keyboard = types.InlineKeyboardMarkup()
+                if not user_id in user_temp_data:
+                    user_temp_data[user_id] = {}
+                user_temp_data[user_id] = data
+                if data.get('dop_osm', '') == 'Yes':
+                    keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}"))
+                else:
+                    keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_Na_ins"))
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите юридическое название СТО, в которое направление на ремонт", reply_markup = keyboard
+                    )
+                bot.register_next_step_handler(msg, name_sto, data, msg.message_id)
+        except ValueError:
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату ответа от страховой в формате ДД.ММ.ГГГГ")
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, org_exp, data, user_message_id)
+            bot.register_next_step_handler(message, date_ins_otv, data, user_message_id)
+
+    def date_exp_ins(message, data, user_message_id):
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        try:
+            datetime.strptime(message.text, "%d.%m.%Y")
+            data.update({"date_exp_ins": message.text})
+            if data["vibor"] == "vibor1":
+                user_temp_data[user_id] = data
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_ins_date_exp"))
+                msg = bot.send_message(message.chat.id, text="Введите организацию, сделавшую экспертизу от страховой", reply_markup = keyboard)
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, org_exp_ins, data, user_message_id)
 
         except ValueError:
-            message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату экспертного заключения в формате ДД.ММ.ГГГГ".format(message.from_user))
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, date_exp, data, user_message_id, user_message_id)
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_ins_otv"))
+            msg = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату экспертного заключения страховой компании в формате ДД.ММ.ГГГГ")
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_exp_ins, data, user_message_id)
 
-    def org_exp(message, data, user_message_id):
-        try:
-            bot.delete_message(message.chat.id, user_message_id)
-            bot.delete_message(message.chat.id, message.message_id)
-        except:
-            pass
-        data.update({"org_exp": message.text})
-        message = bot.send_message(message.chat.id, text="Введите цену по экспертизе без учета износа".format(message.from_user))
-        user_message_id = message.message_id
-        bot.register_next_step_handler(message, coin_exp, data, user_message_id)
-    def coin_exp(message, data, user_message_id):
-        try:
-            bot.delete_message(message.chat.id, user_message_id)
-            bot.delete_message(message.chat.id, message.message_id)
-        except:
-            pass
-        if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
-            data.update({"coin_exp": message.text})
-            message = bot.send_message(
-                message.chat.id,
-                text="Введите цену по экспертизе с учетом износа"
-            )
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, coin_exp_izn, data, user_message_id)
-        else:
-            message = bot.send_message(
-                message.chat.id,
-                text="Неправильный формат, цена должна состоять только из цифр в рублях!\nВведите цену по экспертизе без учета износа"
-            )
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, coin_exp, data, user_message_id)
-    def coin_exp_izn(message, data, user_message_id):
-        user_id = message.from_user.id
-        try:
-            bot.delete_message(message.chat.id, user_message_id)
-            bot.delete_message(message.chat.id, message.message_id)
-        except:
-            pass
-        if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
-            if data.get("vibor",'') == "vibor2":
-                data.update({"coin_exp_izn": message.text})
-                data.update({"date_ombuc": str(get_next_business_date())})
-                data.update({"status": "Составлено заявление к Фин.омбудсмену"})
-                try:
-                    client_id, updated_data = save_client_to_db_with_id(data)
-                    data.update(updated_data)
-                except Exception as e:
-                    print(f"Ошибка базы данных: {e}")
-                create_fio_data_file(data)
-                replace_words_in_word(["{{ Дата_обуцмен }}", "{{ Страховая }}", "{{ ФИО }}", 
-                        "{{ ДР }}", "{{ Место }}","{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
-                        "{{ Паспорт_когда }}", "{{ Адрес }}", "{{ Телефон }}","{{ Серия_полиса }}","{{ Номер_полиса }}",
-                        "{{ Дата_полиса }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
-                        "{{ Адрес_ДТП }}", "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Дата }}",
-                        "{{ Nв_страховую }}", "{{ Дата_направления_ремонт }}","{{ Номер_направления_СТО }}", "{{ СТО }}",
-                        "{{ Индекс_СТО }}", "{{ Адрес_СТО }}", "{{ Дата_предоставления_ТС }}", "{{ Дата_принятия_претензии }}", "{{ Nпринятой_претензии }}",
-                        "{{ Дата_претензии }}", "{{ Банк_получателя }}", "{{ Счет_получателя }}","{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}",
-                        "{{ ФИОк }}","{{ Организация }}", "{{ Nэкспертизы }}", "{{ Дата_экспертизы }}", "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Город }}" ],
-                        [str(data["date_ombuc"]), str(data["insurance"]), str(data["fio"]), str(data["date_of_birth"]), str(data["city_birth"]),
-                            str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                            str(data["address"]), str(data["number"]), str(data["seria_insurance"]), str(data["number_insurance"]),str(data["date_insurance"]), 
-                            str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
-                            str(data["date_ins_pod"]), str(data["Nv_ins"]), str(data["date_napr_sto"]),str(data["N_sto"]),
-                            str(data["name_sto"]), str(data["index_sto"]),str(data["address_sto"]), str(data["date_sto"]),
-                            str(data["data_pret_prin"]),str(data["N_pret_prin"]),str(data["date_pret"]),str(data["bank"]),str(data["bank_account"]),
-                            str(data["bank_account_corr"]),str(data["BIK"]),str(data["INN"]),str(data["fio_k"]), str(data["org_exp"]),str(data["Na_ins"]),
-                            str(data["date_exp"]), str(data["coin_exp"]), str(data["coin_exp_izn"]), str(data["city"])],
-                            "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/8. Заявление фин. омбуцмену СТО отказала.docx",
-                            "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбуцмену СТО отказала.docx")
-                try:
-                    keyboard = types.InlineKeyboardMarkup()
-                    keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
-                    with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбуцмену СТО отказала.docx", 'rb') as doc:
-                        bot.send_document(message.chat.id, doc, caption="📋 Заявление финансовому омбудсмену", reply_markup = keyboard)
-                except FileNotFoundError:
-                    bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
-                notify_isk_department(data["client_id"], data["fio"])
-                client_user_id = user_temp_data[user_id].get('client_user_id')
-                if client_user_id:
-                    try:
-                        keyboard = types.InlineKeyboardMarkup()
-                        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
-                        bot.send_message(
-                            int(client_user_id),
-                            "✅ Заявление к Фин.омбудсмену составлено, ознакомиться с ним можно в личном кабинете",
-                            reply_markup = keyboard
-                        )
-                    except Exception as e:
-                        print(f"Ошибка отправки уведомления клиенту: {e}")
-                if user_id in user_temp_data:
-                    if 'ombudsmen_data' in user_temp_data[user_id]:
-                        del user_temp_data[user_id]['ombudsmen_data']
-                    if 'client_id' in user_temp_data[user_id]:
-                        del user_temp_data[user_id]['client_id']
-                    if 'client_user_id' in user_temp_data[user_id]:
-                        del user_temp_data[user_id]['client_user_id']
-
-            elif data.get("vibor",'') == "vibor4":
-                data.update({"coin_exp_izn": message.text})
-                data.update({"date_ombuc": str(get_next_business_date())})
-                data.update({"status": "Составлено заявление к Фин.омбудсмену"})
-                try:
-                    client_id, updated_data = save_client_to_db_with_id(data)
-                    data.update(updated_data)
-                except Exception as e:
-                    print(f"Ошибка базы данных: {e}")
-                create_fio_data_file(data)
-                replace_words_in_word(["{{ Дата_обуцмен }}", "{{ Страховая }}", "{{ ФИО }}", 
-                        "{{ ДР }}", "{{ Место }}","{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
-                        "{{ Паспорт_когда }}", "{{ Адрес }}", "{{ Телефон }}","{{ Серия_полиса }}","{{ Номер_полиса }}",
-                        "{{ Дата_полиса }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
-                        "{{ Адрес_ДТП }}", "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Дата }}",
-                        "{{ Nв_страховую }}", "{{ Дата_направления_ремонт }}","{{ Номер_направления_СТО }}", "{{ СТО }}",
-                        "{{ Индекс_СТО }}", "{{ Адрес_СТО }}", "{{ Дата_предоставления_ТС }}", "{{ Дата_принятия_претензии }}", "{{ Nпринятой_претензии }}",
-                        "{{ Дата_претензии }}", "{{ Банк_получателя }}", "{{ Счет_получателя }}","{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}",
-                        "{{ ФИОк }}","{{ Организация }}", "{{ Nэкспертизы }}", "{{ Дата_экспертизы }}", "{{ Без_учета_износа }}", "{{ С_учетом_износа }}",
-                        "{{ Город }}","{{ Город_СТО }}"],
-                        [str(data["date_ombuc"]), str(data["insurance"]), str(data["fio"]), str(data["date_of_birth"]), str(data["city_birth"]),
-                            str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                            str(data["address"]), str(data["number"]), str(data["seria_insurance"]), str(data["number_insurance"]),str(data["date_insurance"]), 
-                            str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
-                            str(data["date_ins_pod"]), str(data["Nv_ins"]), str(data["date_napr_sto"]),str(data["N_sto"]),
-                            str(data["name_sto"]), str(data["index_sto"]),str(data["address_sto"]), str(data["date_sto"]),
-                            str(data["data_pret_prin"]),str(data["N_pret_prin"]),str(data["date_pret"]),str(data["bank"]),str(data["bank_account"]),
-                            str(data["bank_account_corr"]),str(data["BIK"]),str(data["INN"]),str(data["fio_k"]), str(data["org_exp"]),str(data["Na_ins"]),
-                            str(data["date_exp"]), str(data["coin_exp"]), str(data["coin_exp_izn"]), str(data["city"]), str(data["city_sto"])],
-                            "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО свыше 50км/7. Заявление фин. омбудсмену СТО свыше 50 км.docx",
-                            "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену СТО свыше 50 км.docx")
-                try:
-                    keyboard = types.InlineKeyboardMarkup()
-                    keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
-                    with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену СТО свыше 50 км.docx", 'rb') as doc:
-                        bot.send_document(message.chat.id, doc, caption="📋 Заявление финансовому омбудсмену", reply_markup = keyboard)
-                except FileNotFoundError:
-                    bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
-                notify_isk_department(data["client_id"], data["fio"])
-                client_user_id = user_temp_data[user_id].get('client_user_id')
-                if client_user_id:
-                    try:
-                        keyboard = types.InlineKeyboardMarkup()
-                        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
-                        bot.send_message(
-                            int(client_user_id),
-                            "✅ Заявление к Фин.омбудсмену составлено, ознакомиться с ним можно в личном кабинете",
-                            reply_markup = keyboard
-                        )
-                    except Exception as e:
-                        print(f"Ошибка отправки уведомления клиенту: {e}")
-                if user_id in user_temp_data:
-                    if 'ombudsmen_data' in user_temp_data[user_id]:
-                        del user_temp_data[user_id]['ombudsmen_data']
-                    if 'client_id' in user_temp_data[user_id]:
-                        del user_temp_data[user_id]['client_id']
-                    if 'client_user_id' in user_temp_data[user_id]:
-                        del user_temp_data[user_id]['client_user_id']
-
-            else:
-                data.update({"coin_exp_izn": message.text})
-                message = bot.send_message(
-                    message.chat.id,
-                    text="Введите сумму выплаты по ОСАГО"
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_ins_date_exp")
+    @prevent_double_click(timeout=3.0)
+    def back_to_Na_ins(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        user_temp_data[user_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_ins_otv"))
+        
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите дату экспертного заключения страховой компании в формате ДД.ММ.ГГГГ",
+            reply_markup=keyboard
+        )
+        user_message_id = msg.message_id
+        bot.register_next_step_handler(msg, date_exp_ins, data, user_message_id)
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_date_ins_otv")
+    @prevent_double_click(timeout=3.0)
+    def back_to_date_ins_otv(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        if data['vibor'] == 'vibor1':
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_Na_ins"))
+            msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите дату ответа от страховой в формате ДД.ММ.ГГГГ",
+                reply_markup=keyboard
                 )
-                user_message_id = message.message_id
-                bot.register_next_step_handler(message, coin_osago, data, user_message_id)
-        else:
-            message = bot.send_message(
-                message.chat.id,
-                text="Неправильный формат, цена должна состоять только из цифр в рублях!\nВведите цену по экспертизе с учетом износа"
-            )
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, coin_exp_izn, data, user_message_id)
-    def coin_osago(message, data, user_message_id):
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_ins_otv, data, user_message_id)
+        elif data['vibor'] == 'vibor2':
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}"))
+            msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите дату ответа от страховой в формате ДД.ММ.ГГГГ",
+                reply_markup=keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_ins_otv, data, user_message_id)
+        elif data['vibor'] == 'vibor4':
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_Nv_ins"))
+            msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите входящий номер в страховую",
+                reply_markup=keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, Nv_ins, data, user_message_id)
+        elif data['vibor'] == 'vibor5':    
+            if data.get('dop_osm', '') == 'Yes':
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}"))
+            else:
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_Na_ins"))
+            msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите дату ответа от страховой в формате ДД.ММ.ГГГГ",
+                reply_markup=keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_ins_otv, data, user_message_id)
+
+    def org_exp_ins(message, data, user_message_id):
         user_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
         except:
             pass
-        if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
-            data.update({"coin_osago": message.text})
-            if data["vibor"] == "vibor1":
+        data.update({"org_exp_ins": message.text})
+        if data['vibor'] == 'vibor1':
+            user_temp_data[user_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_ins_org_exp")) 
+            msg = bot.send_message(message.chat.id, text="Введите цену по экспертизе страховой без учета износа в рублях", reply_markup = keyboard)
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, coin_exp_ins, data, user_message_id)
+    
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_ins_org_exp")
+    @prevent_double_click(timeout=3.0)
+    def back_to_ins_org_exp(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        if data['vibor'] == 'vibor1':
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_ins_date_exp"))
+            msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите организацию, сделавшую экспертизу от страховой",
+                reply_markup=keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, org_exp_ins, data, user_message_id)
+
+    def coin_exp_ins(message, data, user_message_id):
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        data.update({"coin_exp_ins": message.text})
+        if message.text.isdigit():
+            if data['vibor'] == 'vibor1':
+                user_temp_data[user_id] = data
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_ins_coin_exp")) 
+                msg = bot.send_message(message.chat.id, text="Введите цену по экспертизе страховой c учетом износа в рублях", reply_markup = keyboard)
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, coin_exp_ins_izn, data, user_message_id)
+        else:
+            user_temp_data[user_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_ins_org_exp")) 
+            msg = bot.send_message(message.chat.id, text="Неправильный формат ввода! Введите цену по экспертизе страховой без учета износа в рублях", reply_markup = keyboard)
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, coin_exp_ins, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_ins_coin_exp")
+    @prevent_double_click(timeout=3.0)
+    def back_to_ins_coin_exp(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        if data['vibor'] == 'vibor1':
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_ins_org_exp"))
+            msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите цену по экспертизе страховой без учета износа в рублях",
+                reply_markup=keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, coin_exp_ins, data, user_message_id)
+
+    def coin_exp_ins_izn(message, data, user_message_id):
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        data.update({"coin_exp_ins": message.text})
+        if message.text.isdigit():
+            if data['vibor'] == 'vibor1':
                 data.update({"date_pret": str(get_next_business_date())})
                 data.update({"status": 'Составлена претензия'})
                 try:
                     client_id, updated_data = save_client_to_db_with_id(data)
                     data.update(updated_data)
+                    print(data)
                 except Exception as e:
                     print(f"Ошибка базы данных: {e}")
                 create_fio_data_file(data)
@@ -604,43 +954,61 @@ def setup_pret_department_handlers(bot, user_temp_data):
                 replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
                                             "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
                                             "{{ Паспорт_когда }}", "{{ NДоверенности }}", "{{ Дата_доверенности }}","{{ Представитель }}","{{ Телефон_представителя }}",
-                                            "{{ Nакта_осмотра }}", "{{ Дата }}", "{{ Nв_страховую }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
-                                            "{{ Адрес_ДТП }}", "{{ Организация }}", "{{ Дата_экспертизы }}", "{{ Без_учета_износа }}",
-                                            "{{ С_учетом_износа }}", "{{ Выплата_ОСАГО }}","{{ Дата_претензии }}"],
+                                            "{{ Nакта_осмотра }}", "{{ Дата_заявления_форма6 }}", "{{ Nв_страховую }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
+                                            "{{ Адрес_ДТП }}", "{{ Организация_страховой }}", "{{ Дата_экспертизы_страховой }}", "{{ Без_учета_износа_страховой }}",
+                                            "{{ С_учетом_износа_страховой }}", "{{ Выплата_ОСАГО }}", "{{ Организация }}", "{{ Номер_экспертизы }}",
+                                            "{{ Дата_экспертизы }}", "{{ Без_учета_износа }}","{{ Утрата_стоимости }}", "{{ Разница }}","{{ Дата_претензии }}"],
                                             [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
                                                 str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
                                                 str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),str(data["Na_ins"]), 
                                                 str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
-                                                str(data["org_exp"]), str(data["date_exp"]), str(data["coin_exp"]),str(data["coin_exp_izn"]),
-                                                str(data["coin_osago"]), str(datetime.now().strftime("%d.%m.%Y"))],
+                                                str(data["org_exp_ins"]), str(data["date_exp_ins"]), str(data["coin_exp_ins"]),str(data["coin_exp_ins_izn"]),
+                                                str(data.get('coin_osago', '0')), str(data["org_exp"]), str(data["n_exp"]), str(data["date_exp"]),
+                                                str(data["coin_exp"]), str(data["coin_exp_izn"]), str(float(data["coin_exp"])+float(data["coin_exp_izn"])-float(data.get('coin_osago', '0'))), str(data["date_pret"])],
                                                 "Шаблоны/1. ДТП/1. На ремонт/Выплата без согласования/6. Претензия в страховую Выплата без согласования.docx",
-                                                "clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия в страховую Выплата без согласования.docx")
+                                                "clients/"+str(data["client_id"])+"/Документы/"+"Претензия в страховую Выплата без согласования.docx")
                 try:
-                    with open(f"clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия в страховую Выплата без согласования.docx", 'rb') as doc:
+                    with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Претензия в страховую Выплата без согласования.docx", 'rb') as doc:
                         keyboard = types.InlineKeyboardMarkup()
-                        btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
-                        keyboard.add(btn1) 
+                        keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
                         bot.send_document(message.chat.id, doc, caption="📋 Претензия", reply_markup = keyboard)
                 except FileNotFoundError:
                     bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
                 keyboard = types.InlineKeyboardMarkup()
-                btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
-                keyboard.add(btn1)   
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
                 bot.send_message(
                     int(data['user_id']),
                     "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
                     reply_markup = keyboard
                     )
-
         else:
-            message = bot.send_message(
-                message.chat.id,
-                text="Неправильный формат, цена должна состоять только из цифр в рублях!\nВведите сумму выплаты по ОСАГО"
-            )
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, coin_osago, data, user_message_id)
-    
+            user_temp_data[user_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_ins_coin_exp")) 
+            msg = bot.send_message(message.chat.id, text="Неправильный формат ввода! Введите цену по экспертизе страховой с учетом износа в рублях", reply_markup = keyboard)
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, coin_exp_ins_izn, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_ins_coin_exp_izn")
+    @prevent_double_click(timeout=3.0)
+    def back_to_ins_coin_exp_izn(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        if data['vibor'] == 'vibor1':
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_ins_coin_exp"))
+            msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите цену по экспертизе страховой с учетом износа в рублях",
+                reply_markup=keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, coin_exp_ins_izn, data, user_message_id)
     def date_napr_sto(message, data, user_message_id):
+        user_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -654,14 +1022,40 @@ def setup_pret_department_handlers(bot, user_temp_data):
                 user_message_id = msg.message_id
                 bot.register_next_step_handler(msg, data_otkaz_sto, data, user_message_id)
             elif data["vibor"] == "vibor4":
-                msg = bot.send_message(message.chat.id, text="Введите название СТО")
+                user_temp_data[user_id] = data
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_napr_sto"))
+                msg = bot.send_message(message.chat.id, text="Введите юридическое название СТО, в которое направление на ремонт", reply_markup = keyboard)
                 user_message_id = msg.message_id
                 bot.register_next_step_handler(msg, name_sto, data, user_message_id)
         except ValueError:
-            message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату направления на СТО в формате ДД.ММ.ГГГГ".format(message.from_user))
+            user_temp_data[user_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_N_sto"))
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату направления на СТО в формате ДД.ММ.ГГГГ", reply_markup = keyboard )
             user_message_id = message.message_id
             bot.register_next_step_handler(message, date_napr_sto, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_date_napr_sto")
+    @prevent_double_click(timeout=3.0)
+    def back_to_date_napr_sto(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        if data['vibor'] == 'vibor4':
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_N_sto"))
+            msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите дату направления на СТО в формате ДД.ММ.ГГГГ",
+                reply_markup=keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_napr_sto, data, user_message_id)
     def data_otkaz_sto(message, data, user_message_id):
+        user_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -669,12 +1063,17 @@ def setup_pret_department_handlers(bot, user_temp_data):
             pass
         try:
             datetime.strptime(message.text, "%d.%m.%Y")
-            data.update({"data_otkaz_sto": message.text})
-            msg = bot.send_message(message.chat.id, text="Введите город СТО")
+            if not user_id in user_temp_data:
+                user_temp_data[user_id] = {}
+            data.update({"data_otkaz_sto": message.text})    
+            user_temp_data[user_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}")) 
+            msg = bot.send_message(message.chat.id, text="Введите дату ответа страховой", reply_markup = keyboard)
             user_message_id = msg.message_id
-            bot.register_next_step_handler(msg, city_sto, data, user_message_id)
+            bot.register_next_step_handler(msg, date_ins_otv, data, user_message_id)
         except ValueError:
-            message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату отказа СТО в формате ДД.ММ.ГГГГ".format(message.from_user))
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату отказа СТО в формате ДД.ММ.ГГГГ" )
             user_message_id = message.message_id
             bot.register_next_step_handler(message, data_otkaz_sto, data, user_message_id, user_message_id)
     def city_sto(message, data, user_message_id):
@@ -691,6 +1090,7 @@ def setup_pret_department_handlers(bot, user_temp_data):
             try:
                 client_id, updated_data = save_client_to_db_with_id(data)
                 data.update(updated_data)
+                print(data)
             except Exception as e:
                 print(f"Ошибка базы данных: {e}")
             create_fio_data_file(data)
@@ -699,27 +1099,25 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                             "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
                                             "{{ Паспорт_когда }}", "{{ NДоверенности }}", "{{ Дата_доверенности }}","{{ Представитель }}","{{ Телефон_представителя }}",
                                             "{{ Nакта_осмотра }}", "{{ Дата }}", "{{ Nв_страховую }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
-                                            "{{ Адрес_ДТП }}", "{{ Дата_направления_ремонт }}", "{{ Номер_направления_СТО }}", "{{ Дата_предоставления_ТС }}",
-                                            "{{ СТО }}", "{{ Дата_отказа_СТО }}","{{ Дата_претензии }}","{{ Город_СТО }}","{{ Марка_модель }}", "{{ Nавто_клиента }}"],
+                                            "{{ Адрес_ДТП }}", "{{ Дата_направления_ремонт }}", "{{ Номер_направления_СТО }}", "{{ СТО }}","{{ Дата_предоставления_ТС }}",
+                                            "{{ Марка_модель }}","{{ Nавто_клиента }}","{{ Дата_отказа_СТО }}","{{ Дата_претензии }}", "{{ Город_СТО }}"],
                                             [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
                                                 str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
                                                 str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),str(data["Na_ins"]), 
                                                 str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
-                                                str(data["date_napr_sto"]), str(data["N_sto"]), str(data["date_sto"]),str(data["name_sto"]),
-                                                str(data["data_otkaz_sto"]), str(data["date_pret"]), str(data["city"]), str(data["marks"]),str(data["car_number"])],
+                                                str(data["date_napr_sto"]), str(data["N_sto"]), str(data["name_sto"]), str(data["date_sto"]),str(data["marks"]),str(data["car_number"]),
+                                                str(data["data_otkaz_sto"]), str(data["date_pret"]), str(data["city_sto"]), ],
                                                 "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/7. Претензия в страховую СТО отказала.docx",
-                                                "clients/"+str(data["client_id"])+"/Документы/"+"7. Претензия в страховую СТО отказала.docx")
+                                                "clients/"+str(data["client_id"])+"/Документы/"+"Претензия в страховую СТО отказала.docx")
             try:
-                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"7. Претензия в страховую СТО отказала.docx", 'rb') as doc:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Претензия в страховую СТО отказала.docx", 'rb') as doc:
                     keyboard = types.InlineKeyboardMarkup()
-                    btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
-                    keyboard.add(btn1)
+                    keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
                     bot.send_document(message.chat.id, doc, caption="📋 Претензия", reply_markup = keyboard)
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
             keyboard = types.InlineKeyboardMarkup()
-            btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
-            keyboard.add(btn1)   
+            keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
             bot.send_message(
                 int(data['user_id']),
                 "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
@@ -727,45 +1125,361 @@ def setup_pret_department_handlers(bot, user_temp_data):
                 )
 
         elif data["vibor"] == "vibor4":
-            message = bot.send_message(message.chat.id, text="Введите номер направления на СТО".format(message.from_user))
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, N_sto, data, user_message_id)
+            data.update({"date_pret": str(get_next_business_date())})
+            data.update({"status": 'Составлена претензия'})
+            try:
+                client_id, updated_data = save_client_to_db_with_id(data)
+                data.update(updated_data)
+                print(data)
+            except Exception as e:
+                print(f"Ошибка базы данных: {e}")
+            create_fio_data_file(data)
+
+            replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
+                                    "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
+                                    "{{ Паспорт_когда }}", "{{ NДоверенности }}", "{{ Дата_доверенности }}","{{ Представитель }}","{{ Телефон_представителя }}",
+                                    "{{ Nакта_осмотра }}", "{{ Дата_заявления_форма6 }}", "{{ Серия_полиса }}", "{{ Номер_полиса }}","{{ Nв_страховую }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", 
+                                    "{{ Дата_направления_ремонт }}", "{{ Номер_направления_СТО }}", "{{ Название_СТО }}","{{ Индекс_СТО }}", "{{ Адрес_СТО }}", "{{ Город_СТО }}", "{{ Организация }}",
+                                    "{{ Номер_экспертизы }}", "{{ Дата_экспертизы }}","{{ Без_учета_износа }}","{{ Утрата_стоимости }}","{{ Разница }}", "{{ Дата_претензии }}"],
+                                    [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
+                                        str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                        str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),str(data["Na_ins"]), 
+                                        str(data["date_ins"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["Nv_ins"]), 
+                                        str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
+                                        str(data["date_napr_sto"]), str(data["N_sto"]), str(data["name_sto"]),str(data["index_sto"]),str(data["address_sto"]),
+                                        str(data["city_sto"]), str(data["org_exp"]), str(data["n_exp"]), str(data["date_exp"]), str(data["coin_exp"]),
+                                        str(data["coin_exp_izn"]), str(float(data["coin_exp"])+float(data['coin_exp_izn'])), str(data["date_pret"])],
+                                        "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО свыше 50км/6. Претензия в страховую  СТО свыше 50 км.docx",
+                                        "clients/"+str(data["client_id"])+"/Документы/"+"Претензия в страховую  СТО свыше 50 км.docx")
+            try:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Претензия в страховую  СТО свыше 50 км.docx", 'rb') as doc:
+                    keyboard = types.InlineKeyboardMarkup()
+                    keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                    bot.send_document(message.chat.id, doc, caption="📋 Претензия", reply_markup = keyboard)
+            except FileNotFoundError:
+                bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
+            bot.send_message(
+                int(data['user_id']),
+                "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
+                reply_markup = keyboard
+                )
 
     def name_sto(message, data, user_message_id):
+        user_id = message.from_user.id
         try:
-            bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
+            bot.delete_message(message.chat.id, user_message_id)
         except:
             pass
         data.update({"name_sto": message.text})
-        message = bot.send_message(message.chat.id, text="Введите индекс СТО".format(message.from_user))
-        user_message_id = message.message_id
-        bot.register_next_step_handler(message, index_sto, data, user_message_id)
+        user_temp_data[user_id] = data
+        if data['vibor'] == 'vibor4':
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_name_sto"))
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите индекс СТО, 6 цифр", reply_markup = keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, index_sto, data, user_message_id)
+        elif data['vibor'] == 'vibor5':
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_name_sto"))
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите адрес СТО, в котором направление на ремонт", reply_markup = keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, address_sto, data, user_message_id)
+        else:
+            message = bot.send_message(message.chat.id, text="Введите индекс СТО")
+            user_message_id = message.message_id
+            bot.register_next_step_handler(message, index_sto, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_pret_name_sto")
+    @prevent_double_click(timeout=3.0)
+    def back_to_pret_name_sto(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        if data["vibor"] == 'vibor4':
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_napr_sto"))
+            msg = bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text="Введите юридическое название СТО, в которое направление на ремонт",
+                    reply_markup=keyboard
+                    )
+            bot.register_next_step_handler(msg, name_sto, data, msg.message_id)
+        elif data["vibor"] == 'vibor5':
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_ins_otv"))
+            msg = bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text="Введите юридическое название СТО, в которое направление на ремонт",
+                    reply_markup=keyboard
+                    )
+            bot.register_next_step_handler(msg, name_sto, data, msg.message_id)
+
     def index_sto(message, data, user_message_id):
+        user_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
         except:
             pass
         if len(message.text.replace(" ", "")) != 6 or not message.text.replace(" ", "").isdigit():
-            message = bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр!\nВведите индекс СТО, например, 123456".format(message.from_user))
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_name_sto"))
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода, должно быть 6 цифр!\nВведите индекс СТО, например, 123456", reply_markup = keyboard )
             user_message_id = message.message_id
             bot.register_next_step_handler(message, index_sto, data, user_message_id)
         else:
             data.update({"index_sto": message.text})
-            message = bot.send_message(message.chat.id, text="Введите адрес СТО".format(message.from_user))
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, address_sto, data, user_message_id) 
+            user_temp_data[user_id] = data
+            if data['vibor'] == 'vibor4':
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_index_sto"))
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите адрес СТО", reply_markup = keyboard
+                    )
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, address_sto, data, user_message_id)
+            else:
+                message = bot.send_message(message.chat.id, text="Введите адрес СТО" )
+                user_message_id = message.message_id
+                bot.register_next_step_handler(message, address_sto, data, user_message_id) 
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_pret_index_sto")
+    @prevent_double_click(timeout=3.0)
+    def back_to_pret_index_sto(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        if data["vibor"] == 'vibor4':
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_name_sto"))
+            msg = bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text="Введите индекс СТО, 6 цифр",
+                    reply_markup=keyboard
+                    )
+            bot.register_next_step_handler(msg, index_sto, data, msg.message_id)
+
     def address_sto(message, data, user_message_id):
+        user_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
         except:
             pass
         data.update({"address_sto": message.text})
-        message = bot.send_message(message.chat.id, text="Введите город СТО".format(message.from_user))
-        user_message_id = message.message_id
-        bot.register_next_step_handler(message, city_sto, data, user_message_id)
+        user_temp_data[user_id] = data
+        if data['vibor'] == 'vibor4':
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_address_sto"))
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите город СТО", reply_markup = keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, city_sto, data, user_message_id)
+        elif data['vibor'] == 'vibor5':
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_address_sto"))
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите дату, когда предоставили автомобиль на ремонт в формате ДД.ММ.ГГГГ", reply_markup = keyboard
+                )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_sto, data, user_message_id)
+        else:
+            message = bot.send_message(message.chat.id, text="Введите город СТО")
+            user_message_id = message.message_id
+            bot.register_next_step_handler(message, city_sto, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_pret_address_sto")
+    @prevent_double_click(timeout=3.0)
+    def back_to_pret_address_sto(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        if data['vibor'] == 'vibor4':
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_index_sto"))
+            msg = bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text="Введите адрес СТО, в котором направление на ремонт",
+                    reply_markup=keyboard
+                    )
+            bot.register_next_step_handler(msg, address_sto, data, msg.message_id)
+        elif data['vibor'] == 'vibor5':
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_name_sto"))
+            msg = bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text="Введите адрес СТО, в котором направление на ремонт",
+                    reply_markup=keyboard
+                    )
+            bot.register_next_step_handler(msg, address_sto, data, msg.message_id)
+
+    def date_sto(message, data, user_message_id):
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        try:
+            datetime.strptime(message.text, "%d.%m.%Y")
+            data.update({"date_sto": message.text})
+            user_temp_data[user_id] = data
+            if data["vibor"] == "vibor5":
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_date_sto"))
+                msg = bot.send_message(message.chat.id, text="Введите ФИО лица, поставивший отметку о представлении ТС", reply_markup = keyboard)
+                user_message_id = msg.message_id
+                bot.register_next_step_handler(msg, fio_sto, data, user_message_id)
+
+        except ValueError:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_address_sto"))
+            msg = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату, когда предоставили автомобиль на ремонт в формате ДД.ММ.ГГГГ", reply_markup = keyboard)
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_sto, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_pret_date_sto")
+    @prevent_double_click(timeout=3.0)
+    def back_to_pret_date_sto(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_address_sto"))
+        msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите дату, когда предоставили автомобиль на ремонт в формате ДД.ММ.ГГГГ",
+                reply_markup=keyboard
+                )
+        bot.register_next_step_handler(msg, date_sto, data, msg.message_id)
+
+    def fio_sto(message, data, user_message_id):
+        """Обновление ФИО"""
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        keyboard = types.InlineKeyboardMarkup()
+        if len(message.text.split()) < 2:
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_date_sto"))
+            msg = bot.send_message(message.chat.id, "❌ Неправильный формат! Введите ФИО лица, поставивший отметку о представлении ТС", reply_markup = keyboard)
+            bot.register_next_step_handler(msg, fio_sto, data, msg.message_id)
+            return
+        
+        words = message.text.split()
+        for word in words:
+            if not word[0].isupper():
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_date_sto"))
+                msg = bot.send_message(message.chat.id, "❌ Каждое слово должно начинаться с заглавной буквы! Введите ФИО лица, поставивший отметку о представлении ТС", reply_markup = keyboard)
+                bot.register_next_step_handler(msg, fio_sto, data, msg.message_id)
+                return
+        data.update({'fio_sto': message.text.strip()}) 
+        user_temp_data[user_id] = data
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_fio_sto"))
+        msg = bot.send_message(message.chat.id, "Введите дату истечения срока ремонта в формате ДД.ММ.ГГГГ", reply_markup = keyboard)
+        bot.register_next_step_handler(msg, date_istch_rem, data, msg.message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_fio_sto")
+    @prevent_double_click(timeout=3.0)
+    def back_to_fio_sto(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_date_sto"))
+        msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите ФИО лица, поставивший отметку о представлении ТС",
+                reply_markup=keyboard
+                )
+        bot.register_next_step_handler(msg, fio_sto, data, msg.message_id)
+
+    def date_istch_rem(message, data, user_message_id):
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        try:
+            datetime.strptime(message.text, "%d.%m.%Y")
+            data.update({"date_istch_rem": message.text})
+            user_temp_data[user_id] = data
+            if data["vibor"] == "vibor5":
+                data.update({"date_pret": str(get_next_business_date())})
+                data.update({"status": 'Составлена претензия'})
+                try:
+                    client_id, updated_data = save_client_to_db_with_id(data)
+                    data.update(updated_data)
+                    print(data)
+                except Exception as e:
+                    print(f"Ошибка базы данных: {e}")
+                create_fio_data_file(data)
+
+                replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
+                                            "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
+                                            "{{ Паспорт_когда }}", "{{ NДоверенности }}", "{{ Дата_доверенности }}","{{ Представитель }}","{{ Телефон_представителя }}",
+                                            "{{ Дата_заявления_форма6 }}", "{{ Серия_полиса }}", "{{ Номер_полиса }}", "{{ Nакта_осмотра }}", "{{ Название_СТО }}", 
+                                            "{{ Адрес_СТО }}", "{{ Дата_СТО }}", "{{ ФИО_СТО }}", "{{ Дата_СТО_30 }}",
+                                            "{{ Организация }}", "{{ Номер_экспертизы }}","{{ Дата_экспертизы }}", 
+                                            "{{ Без_учета_износа }}", "{{ Утрата_стоимости }}","{{ Разница }}", "{{ Дата_претензии }}"],
+                                            [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
+                                                str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                                str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),str(data["date_ins"]), 
+                                                str(data["seria_insurance"]), str(data["number_insurance"]), str(data["Na_ins"]), str(data["name_sto"]), str(data["address_sto"]),
+                                                str(data["date_sto"]), str(data["fio_sto"]), str(data["date_istch_rem"]),str(data["org_exp"]),
+                                                str(data["n_exp"]), str(data["date_exp"]), str(data["coin_exp"]), str(data["coin_exp_izn"]),
+                                                str(float(data["coin_exp"])+float(data["coin_exp_izn"])-float(data.get('coin_osago', '0'))), str(data["date_pret"]),],
+                                                "Шаблоны/1. ДТП/1. На ремонт/Страховая не организовала ремонт/6. претензия Страховаяя не организовала ремонт.docx",
+                                                "clients/"+str(data["client_id"])+"/Документы/"+"Претензия Страховая не организовала ремонт.docx")
+                try:
+                    with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Претензия Страховая не организовала ремонт.docx", 'rb') as doc:
+                        keyboard = types.InlineKeyboardMarkup()
+                        keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+                        bot.send_document(message.chat.id, doc, caption="📋 Претензия", reply_markup = keyboard)
+                except FileNotFoundError:
+                    bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
+                bot.send_message(
+                    int(data['user_id']),
+                    "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
+                    reply_markup = keyboard
+                    )
+
+        except ValueError:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_fio_sto"))
+            msg = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату истечения срока ремонта в формате ДД.ММ.ГГГГ", reply_markup = keyboard)
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_istch_rem, data, user_message_id)
+
     def N_sto(message, data, user_message_id):
         user_id = message.from_user.id
         try:
@@ -774,47 +1488,34 @@ def setup_pret_department_handlers(bot, user_temp_data):
         except:
             pass
         data.update({"N_sto": message.text})
-        data.update({"date_pret": str(get_next_business_date())})
-        data.update({"status": 'Составлена претензия'})
-        try:
-            client_id, updated_data = save_client_to_db_with_id(data)
-            data.update(updated_data)
-        except Exception as e:
-            print(f"Ошибка базы данных: {e}")
-        create_fio_data_file(data)
-        replace_words_in_word(["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
-                                            "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
-                                            "{{ Паспорт_когда }}", "{{ NДоверенности }}", "{{ Дата_доверенности }}","{{ Представитель }}","{{ Телефон_представителя }}",
-                                            "{{ Nакта_осмотра }}", "{{ Дата }}", "{{ Nв_страховую }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
-                                            "{{ Адрес_ДТП }}", "{{ Дата_направления_ремонт }}", "{{ Номер_направления_СТО }}",
-                                            "{{ СТО }}", "{{ Индекс_СТО }}","{{ Адрес_СТО }}","{{ Город_СТО }}","{{ Номер_направления_на_ремонт }}","{{ Дата_направления }}",
-                                            "{{ Марка_модель }}", "{{ Nавто_клиента }}","{{ Дата_претензии }}"],
-                                            [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                                str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                                str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),str(data["Na_ins"]), 
-                                                str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
-                                                str(data["date_napr_sto"]), str(data["N_sto"]), str(data["name_sto"]),str(data["index_sto"]),str(data["address_sto"]),
-                                                str(data["city_sto"]), str(data["N_sto"]), str(data["date_napr_sto"]), str(data["marks"]),str(data["car_number"]), str(data["date_pret"])],
-                                                "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО свыше 50км/6. Претензия в страховую  СТО свыше 50 км.docx",
-                                                "clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия в страховую  СТО свыше 50 км.docx")
-        try:
-            with open(f"clients/"+str(data["client_id"])+"/Документы/"+"6. Претензия в страховую  СТО свыше 50 км.docx", 'rb') as doc:
-                keyboard = types.InlineKeyboardMarkup()
-                btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
-                keyboard.add(btn1)
-                bot.send_document(message.chat.id, doc, caption="📋 Претензия", reply_markup = keyboard)
-        except FileNotFoundError:
-            bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
-
+        user_temp_data[user_id] = data
         keyboard = types.InlineKeyboardMarkup()
-        btn1 = types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start")
-        keyboard.add(btn1)   
-        bot.send_message(
-            int(data['user_id']),
-            "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
-            reply_markup = keyboard
-            )
+        if data['vibor'] == 'vibor4':
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_pret_N_sto"))
+            msg = bot.send_message(message.chat.id, text="Введите дату направления на ремонт", reply_markup = keyboard)
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, date_napr_sto, data, user_message_id)
 
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_pret_N_sto")
+    @prevent_double_click(timeout=3.0)
+    def back_to_pret_N_sto(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        user_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        if data['vibor'] == 'vibor4':
+            if data.get('dop_osm', '') == 'Yes':
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"create_pretenziya_{data['client_id']}"))
+            else:
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_ins_otv"))
+            msg = bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text="Введите номер направления на ремонт",
+                    reply_markup=keyboard
+                    )
+        bot.register_next_step_handler(msg, N_sto, data, msg.message_id)    
     @bot.callback_query_handler(func=lambda call: call.data.startswith("create_ombudsmen_"))
     @prevent_double_click(timeout=3.0)
     def callback_create_ombudsmen(call):
@@ -845,69 +1546,19 @@ def setup_pret_department_handlers(bot, user_temp_data):
         user_temp_data[user_id]['ombudsmen_data'] = data
         user_temp_data[user_id]['client_id'] = client_id
         user_temp_data[user_id]['client_user_id'] = data.get('user_id')
-        if data["vibor"] == "vibor1":
-            keyboard = types.InlineKeyboardMarkup()
-            btn1 = types.InlineKeyboardButton("Да", callback_data=f"YESprRem")
-            btn2 = types.InlineKeyboardButton("Нет", callback_data=f"NOprV1")
-            keyboard.add(btn1)
-            keyboard.add(btn2)
-            
-            msg = bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text="Удовлетворена ли претензия?",
-                reply_markup=keyboard
-                )
-        elif data["vibor"] == "vibor2" or data.get("vibor", "") == "vibor4":
-            keyboard = types.InlineKeyboardMarkup()
-            btn1 = types.InlineKeyboardButton("Да", callback_data=f"YESprRem")
-            btn2 = types.InlineKeyboardButton("Нет", callback_data=f"NOprV2")
-            keyboard.add(btn1)
-            keyboard.add(btn2)
-            
-            msg = bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text="СТО была заменена?",
-                reply_markup=keyboard
-                )
-    @bot.callback_query_handler(func=lambda call: call.data == "NOprV2")
-    @prevent_double_click(timeout=3.0)
-    def callback_ombudsmen_noV2(call):
-        user_id = call.from_user.id
-        data = user_temp_data[user_id]['ombudsmen_data']
-        msg = bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text="Введите дату экспертного заключения (ДД.ММ.ГГГГ)"
-                )
-        user_message_id = msg.message_id
-        bot.register_next_step_handler(msg, date_exp, data, user_message_id)
-    @bot.callback_query_handler(func=lambda call: call.data == "YESprRem")
-    @prevent_double_click(timeout=3.0)
-    def callback_ombudsmen_yes(call):
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("1", callback_data=f"vibor2"))
-        keyboard.add(types.InlineKeyboardButton("2", callback_data=f"vibor3"))
-        keyboard.add(types.InlineKeyboardButton("3", callback_data=f"vibor4"))
-        bot.edit_message_text(call.message.chat.id, call.message.message_id, "Выберите из предложенных вариантов:\n" \
-        "1) Страховая компания выдала направление на ремонт, СТО отказала.\n" \
-        "2) Страховая выдала направление на ремонт и ремонт произведен.\n" \
-        "3) Страховая компания выдала направление на ремонт, СТО дальше 50 км.",
-        reply_markup = keyboard)
 
-    @bot.callback_query_handler(func=lambda call: call.data == "NOprV1")
-    @prevent_double_click(timeout=3.0)
-    def callback_ombudsmen_no(call):
-        user_id = call.from_user.id
-        data = user_temp_data[user_id]['ombudsmen_data']
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+
+        
         msg = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="Введите дату ответа на претензию (ДД.ММ.ГГГГ)"
+            text="Введите дату ответа на претензию в формате ДД.ММ.ГГГГ",
+            reply_markup=keyboard
             )
-        user_message_id = msg.message_id
-        bot.register_next_step_handler(msg, data_pret_otv, data, user_message_id)
+        bot.register_next_step_handler(msg, data_pret_otv, data, msg.message_id)
+
     def data_pret_otv(message, data, user_message_id):
         user_id = message.from_user.id
         try:
@@ -926,24 +1577,91 @@ def setup_pret_department_handlers(bot, user_temp_data):
             except Exception as e:
                 print(f"Ошибка базы данных: {e}")
             create_fio_data_file(data)
-            replace_words_in_word(["{{ Дата_обуцмен }}", "{{ Страховая }}","{{ Город }}", "{{ ФИО }}", 
-                            "{{ ДР }}", "{{ Место }}","{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
-                            "{{ Паспорт_когда }}", "{{ Адрес }}", "{{ Телефон }}","{{ Серия_полиса }}","{{ Номер_полиса }}",
-                            "{{ Дата_полиса }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
-                            "{{ Адрес_ДТП }}", "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Дата }}",
-                            "{{ Организация }}", "{{ Nэкспертизы }}","{{ Дата_экспертизы }}", "{{ Без_учета_износа }}",
-                            "{{ С_учетом_износа }}", "{{ Дата_претензии }}", "{{ Дата_ответа_на_претензию }}", "{{ Выплата_ОСАГО }}", "{{ ФИОк }}", "{{ Nв_страховую }}"],
-                            [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]), str(data["city_birth"]),
-                                str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                str(data["address"]), str(data["number"]), str(data["seria_insurance"]), str(data["number_insurance"]),str(data["date_insurance"]), 
-                                str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
-                                str(data["date_ins_pod"]), str(data["org_exp"]), str(data["Na_ins"]),str(data["date_exp"]),
-                                str(data["coin_exp"]), str(data["coin_exp_izn"]),str(data["date_pret"]),
-                                str(data["data_pret_otv"]), str(data["coin_osago"]),str(data["fio_k"]), str(data["Nv_ins"])],
-                                "Шаблоны/1. ДТП/1. На ремонт/Выплата без согласования/7. Заявление фин. омбудсмену при выплате без согласования.docx",
-                                "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену при выплате без согласования.docx")
+            if data['vibor'] == 'vibor1':
+                replace_words_in_word(["{{ Дата_обуцмен }}", "{{ Страховая }}","{{ Город }}", "{{ ФИО }}", 
+                                "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
+                                "{{ Паспорт_когда }}", "{{ Телефон_представителя }}","{{ Серия_полиса }}", "{{ Номер_полиса }}","{{ Дата_полиса }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
+                                "{{ Адрес_ДТП }}", "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Дата_заявления_форма6 }}",
+                                "{{ Nв_страховую }}", "{{ Организация_страховой }}","{{ Дата_экспертизы_страховой }}", "{{ Без_учета_износа_страховой }}",
+                                "{{ С_учетом_износа_страховой }}", "{{ Дата_претензии }}", "{{ Дата_ответа_на_претензию }}", "{{ Выплата_ОСАГО }}", "{{ Разница }}", "{{ ФИОк }}"],
+                                [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
+                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                    str(data["number_not"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
+                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
+                                    str(data["date_ins_pod"]), str(data["Nv_ins"]), str(data["org_exp_ins"]),str(data["date_exp_ins"]),
+                                    str(data["coin_exp_ins"]), str(data["coin_exp_ins_izn"]),str(data["date_pret"]),
+                                    str(data["data_pret_otv"]), str(data.get('coin_osago', '0')), str(float(data["coin_exp"])+float(data["coin_exp_izn"])-float(data.get('coin_osago', '0'))), str(data["fio_k"])],
+                                    "Шаблоны/1. ДТП/1. На ремонт/Выплата без согласования/7. Заявление фин. омбудсмену при выплате без согласования.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx")
+            elif data['vibor'] == 'vibor2':
+                replace_words_in_word(["{{ Дата_обуцмен }}", "{{ Страховая }}","{{ Город }}", "{{ ФИО }}", 
+                                "{{ ДР }}", "{{ Место }}","{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
+                                "{{ Паспорт_когда }}",  "{{ Адрес }}", "{{ Телефон }}", "{{ Серия_полиса }}", "{{ Номер_полиса }}","{{ Дата_полиса }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
+                                "{{ Адрес_ДТП }}", "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Дата }}",
+                                "{{ Nв_страховую }}", "{{ Организация }}","{{ Nэкспертизы }}", "{{ Дата_экспертизы }}",
+                                "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата_направления_ремонт }}", "{{ Номер_направления_СТО }}", "{{ СТО }}", "{{ Дата_предоставления_ТС }}",
+                                "{{ Дата_претензии }}", "{{ ФИОк }}"],
+                                [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),str(data["city_birth"]),
+                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                    str(data["address"]), str(data["number"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
+                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
+                                    str(data["date_ins_pod"]), str(data["Nv_ins"]), str(data["org_exp"]), str(data["n_exp"]), str(data["date_exp"]),
+                                    str(data["coin_exp"]), str(data["coin_exp_izn"]), str(data["date_napr_sto"]), str(data["N_sto"]),str(data["name_sto"]),
+                                    str(data["date_sto"]), str(data["date_pret"]), str(data["fio_k"])],
+                                    "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/8. Заявление фин. омбуцмену СТО отказала.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx")
+            elif data['vibor'] == 'vibor3':
+                replace_words_in_word(["{{ Дата_обуцмен }}", "{{ Страховая }}","{{ Город }}", "{{ ФИО }}", 
+                                "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
+                                "{{ Паспорт_когда }}", "{{ Телефон_представителя }}","{{ Серия_полиса }}", "{{ Номер_полиса }}","{{ Дата_полиса }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
+                                "{{ Адрес_ДТП }}", "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Дата_заявления_форма6 }}",
+                                "{{ Nакта_осмотра }}", "{{ Выплата_ОСАГО }}","{{ Дата_ответ_страховой }}", "{{ Организация }}",
+                                "{{ Номер_экспертизы }}", "{{ Дата_экспертизы }}", "{{ Без_учета_износа }}", "{{ Утрата_стоимости }}", "{{ Разница }}", "{{ Дата_претензии }}","{{ ФИОк }}"],
+                                [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
+                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                    str(data["number_not"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
+                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
+                                    str(data["date_ins_pod"]), str(data["Na_ins"]), str(data.get('coin_osago', '0')),str(data["date_ins_otv"]),
+                                    str(data["org_exp"]), str(data["n_exp"]),str(data["date_exp"]),
+                                    str(data["coin_exp"]), str(data["coin_exp_izn"]), str(float(data["coin_exp"])+float(data["coin_exp_izn"])), str(data["date_pret"]), str(data["fio_k"])],
+                                    "Шаблоны/1. ДТП/1. На ремонт/У страховой нет СТО/Омбуцмен у страховой нет СТО.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx")
+            elif data['vibor'] == 'vibor4':
+                replace_words_in_word(["{{ Дата_обуцмен }}", "{{ Страховая }}","{{ Город }}", "{{ ФИО }}", 
+                                "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
+                                "{{ Паспорт_когда }}", "{{ Телефон_представителя }}","{{ Серия_полиса }}", "{{ Номер_полиса }}","{{ Дата_полиса }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
+                                "{{ Адрес_ДТП }}", "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Дата }}",
+                                "{{ Nв_страховую }}", "{{ Организация }}","{{ Nэкспертизы }}", "{{ Дата_экспертизы }}",
+                                "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата_направления_ремонт }}", "{{ Номер_направления_СТО }}", "{{ Название_СТО }}",
+                                "{{ Дата_претензии }}", "{{ Город_СТО }}", "{{ Разница }}", "{{ ФИОк }}"],
+                                [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
+                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                    str(data["number_not"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
+                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
+                                    str(data["date_ins_pod"]), str(data["Nv_ins"]), str(data["org_exp"]), str(data["n_exp"]), str(data["date_exp"]),
+                                    str(data["coin_exp"]), str(data["coin_exp_ins"]),str(data["date_napr_sto"]),str(data["N_sto"]),str(data["name_sto"]),
+                                    str(data["date_pret"]), str(data["city_sto"]), str(float(data["coin_exp"])+float(data["coin_exp_izn"])), str(data["fio_k"])],
+                                    "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО свыше 50км/7. Заявление фин. омбудсмену СТО свыше 50 км.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx")
+            elif data['vibor'] == 'vibor5':
+                replace_words_in_word(["{{ Дата_обуцмен }}", "{{ Страховая }}","{{ Город }}", "{{ ФИО }}", 
+                                "{{ ДР }}", "{{ Паспорт_серия }}","{{ Паспорт_номер }}", "{{ Паспорт_выдан }}",
+                                "{{ Паспорт_когда }}", "{{ Телефон_представителя }}","{{ Серия_полиса }}", "{{ Номер_полиса }}","{{ Дата_полиса }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
+                                "{{ Адрес_ДТП }}", "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Дата_заявления_форма6 }}",
+                                "{{ Nв_страховую }}", "{{ Дата_СТО_30 }}","{{ Nакта_осмотра }}", "{{ Выплата_ОСАГО }}",
+                                "{{ Организация }}", "{{ Номер_экспертизы }}", "{{ Дата_экспертизы }}", "{{ Без_учета_износа }}",
+                                "{{ Утрата_стоимости }}", "{{ Разница }}", "{{ ФИОк }}"],
+                                [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
+                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
+                                    str(data["number_not"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
+                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
+                                    str(data["date_ins_pod"]), str(data["Nv_ins"]), str(data["date_istch_rem"]),str(data["Na_ins"]),
+                                    str(data.get('coin_osago', '0')), str(data["org_exp"]),str(data["n_exp"]),str(data["date_exp"]),
+                                    str(data["coin_exp"]), str(data["coin_exp_izn"]), str(float(data["coin_exp"])+float(data["coin_exp_izn"])-float(data.get('coin_osago', '0'))), str(data["fio_k"])],
+                                    "Шаблоны/1. ДТП/1. На ремонт/Страховая не организовала ремонт/7. Заявление фин. омбудсмену не организовали ремонт.docx",
+                                    "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx")
             try:
-                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену при выплате без согласования.docx", 'rb') as doc:
+                with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx", 'rb') as doc:
                     keyboard = types.InlineKeyboardMarkup()
                     keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
                     bot.send_document(message.chat.id, doc, caption="📋 Заявление финансовому омбудсмену", reply_markup = keyboard)
@@ -972,7 +1690,9 @@ def setup_pret_department_handlers(bot, user_temp_data):
                     del user_temp_data[user_id]['client_user_id']
 
         except ValueError:
-            message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату ответа на претензию в формате ДД.ММ.ГГГГ".format(message.from_user))
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату ответа на претензию в формате ДД.ММ.ГГГГ", reply_markup = keyboard)
             user_message_id = message.message_id
             bot.register_next_step_handler(message, data_pret_otv, data, user_message_id)
 
@@ -1010,11 +1730,136 @@ def setup_pret_department_handlers(bot, user_temp_data):
                             notified_count += 1
                             
                         except Exception as e:
-                            print(f"Не удалось уведомить Претензионный отдел {director[0]}: {e}")
+                            print(f"Не удалось уведомить Исковой отдел {director[0]}: {e}")
                     
-                    print(f"Уведомлено сотрудников Претензионного отдела: {notified_count}/{len(directors)}")
+                    print(f"Уведомлено сотрудников Искового отдела: {notified_count}/{len(directors)}")
         except Exception as e:
                 print(f"Ошибка уведомления Претензионный отдел: {e}")
+
+    @bot.callback_query_handler(func=lambda call: call.data == "pret_finances")
+    @prevent_double_click(timeout=3.0)
+    def pret_finances_handler(call):
+        """Финансы претензионного отдела"""
+        pret_id = call.from_user.id
+        db = DatabaseManager()
+        balance_data = db.get_pret_balance(str(pret_id))
+        monthly_earning = db.get_pret_monthly_earning(str(pret_id))
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("💸 Заказать вывод", callback_data="request_pret_withdrawal"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="callback_start"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"💰 Финансы\n\n"
+                f"📊 Ваш заработок за месяц: {monthly_earning:.2f} руб.\n"
+                f"💵 Баланс: {balance_data['balance']:.2f} руб.",
+            reply_markup=keyboard
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "request_pret_withdrawal")
+    @prevent_double_click(timeout=3.0)
+    def request_pret_withdrawal_handler(call):
+        """Запрос на вывод средств претензионным отделом"""
+        pret_id = call.from_user.id
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="💸 Введите сумму для вывода:"
+        )
+        
+        bot.register_next_step_handler(call.message, process_pret_withdrawal_amount, pret_id, call.message.message_id)
+
+    def process_pret_withdrawal_amount(message, pret_id, prev_message_id):
+        """Обработка суммы вывода претензионного отдела"""
+        try:
+            bot.delete_message(message.chat.id, prev_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        
+        db = DatabaseManager()
+        try:
+            amount = float(message.text.strip())
+        except ValueError:
+            msg = bot.send_message(
+                message.chat.id,
+                "❌ Неверный формат. Введите число:"
+            )
+            bot.register_next_step_handler(msg, process_pret_withdrawal_amount, pret_id, msg.message_id)
+            return
+        
+        if amount <= 0:
+            msg = bot.send_message(
+                message.chat.id,
+                "❌ Сумма должна быть положительной. Введите снова:"
+            )
+            bot.register_next_step_handler(msg, process_pret_withdrawal_amount, pret_id, msg.message_id)
+            return
+        
+        balance_data = db.get_pret_balance(str(pret_id))
+        if amount > balance_data['balance']:
+            msg = bot.send_message(
+                message.chat.id,
+                f"❌ Недостаточно средств. Ваш баланс: {balance_data['balance']:.2f} руб.\n"
+                f"Введите сумму не больше баланса:"
+            )
+            bot.register_next_step_handler(msg, process_pret_withdrawal_amount, pret_id, msg.message_id)
+            return
+        
+        # Создаем заявку
+        pret_data = get_admin_from_db_by_user_id(pret_id)
+        pret_fio = pret_data.get('fio', 'Претензионный отдел')
+        
+        withdrawal_id = db.create_withdrawal_request(str(pret_id), pret_fio, amount)
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+        
+        if withdrawal_id:
+            bot.send_message(
+                message.chat.id,
+                f"✅ Заявка на вывод {amount:.2f} руб. отправлена на подпись.",
+                reply_markup=keyboard
+            )
+            
+            # Уведомляем всех бухгалтеров
+            notify_directors_about_withdrawal(bot, pret_fio, amount)
+        else:
+            bot.send_message(
+                message.chat.id,
+                "❌ Ошибка создания заявки. Попробуйте позже.",
+                reply_markup=keyboard
+            )
+
+    def notify_directors_about_withdrawal(bot, employee_fio, amount):
+        """Уведомить всех директоров о заявке на вывод"""
+        db_instance = DatabaseManager()
+        try:
+            with db_instance.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT user_id FROM admins 
+                        WHERE admin_value = 'Бухгалтер'
+                    """)
+                    directors = cursor.fetchall()
+                    
+                    for director in directors:
+                        try:
+                            keyboard = types.InlineKeyboardMarkup()
+                            keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+                            bot.send_message(
+                                director[0],
+                                f"📝 Поступил документ на подпись от {employee_fio}\n"
+                                f"💰 Сумма: {amount:.2f} руб.",
+                                reply_markup=keyboard
+                            )
+                        except Exception as e:
+                            print(f"Не удалось уведомить директора {director[0]}: {e}")
+        except Exception as e:
+            print(f"Ошибка уведомления директоров: {e}")
+
 def cleanup_messages(bot, chat_id, message_id, count):
     """Удаляет последние N сообщений"""
     for i in range(count):

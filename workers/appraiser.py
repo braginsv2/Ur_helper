@@ -1,5 +1,4 @@
 from telebot import types
-import re
 import psycopg2.extras
 import json
 import os
@@ -9,9 +8,8 @@ from datetime import datetime
 from database import (
     DatabaseManager,
     get_client_from_db_by_client_id,
-    save_client_to_db_with_id
+    get_admin_from_db_by_user_id
 )
-from word_utils import create_fio_data_file, replace_words_in_word, get_next_business_date
 import threading
 import time
 from functools import wraps
@@ -19,9 +17,9 @@ from functools import wraps
 active_callbacks = {}
 callback_lock = threading.Lock()
 db = DatabaseManager()
-upload_sessions = {}
 
-def setup_appraiser_handlers(bot, user_temp_data):
+
+def setup_appraiser_handlers(bot, user_temp_data, upload_sessions):
     """Регистрация обработчиков для претензий, заявлений к омбудсмену и исков"""
     def prevent_double_click(timeout=2.0):
         """
@@ -265,6 +263,190 @@ def setup_appraiser_handlers(bot, user_temp_data):
             reply_markup=keyboard,
             parse_mode='HTML'
         )
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('download_calc_'))
+    def handle_download_calc(call):
+        client_id = call.data.split('_')[-1]
+        chat_id = call.message.chat.id
+        try:
+            bot.delete_message(chat_id, call.message.message_id)
+        except:
+            pass
+        data = get_client_from_db_by_client_id(client_id)
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"appraiser_view_contract_{client_id}"))
+        msg = bot.send_message(
+            chat_id,
+            "Введите дату экспертного заключения в формате ДД.ММ.ГГГГ",
+            reply_markup=keyboard
+        )
+        bot.register_next_step_handler(msg, date_exp, data, msg.message_id)
+
+    def date_exp(message, data, user_message_id):
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+
+        try:
+            datetime.strptime(message.text, "%d.%m.%Y")
+            data.update({"date_exp": message.text})
+            user_temp_data[user_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_exp"))
+            message = bot.send_message(message.chat.id, text="Введите номер экспертного заключения", reply_markup = keyboard)
+            user_message_id = message.message_id
+            bot.register_next_step_handler(message, n_exp, data, user_message_id)
+
+        except ValueError:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"appraiser_view_contract_{data['client_id']}"))
+            message = bot.send_message(message.chat.id, text="Неправильный формат ввода!\nВведите дату экспертного заключения в формате ДД.ММ.ГГГГ", reply_markup = keyboard)
+            user_message_id = message.message_id
+            bot.register_next_step_handler(message, date_exp, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('back_to_date_exp'))
+    def handle_back_to_date_exp(call):
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        user_id = call.from_user.id
+        try:
+            bot.delete_message(user_id, call.message.message_id)
+        except:
+            pass
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"appraiser_view_contract_{data['client_id']}"))
+        msg = bot.send_message(
+            user_id,
+            "Введите дату экспертного заключения в формате ДД.ММ.ГГГГ",
+            reply_markup=keyboard
+        )
+        bot.register_next_step_handler(msg, date_exp, data, msg.message_id)
+
+    def n_exp(message, data, user_message_id):
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+
+        data.update({"n_exp": message.text})
+        user_temp_data[user_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_n_exp"))
+        message = bot.send_message(message.chat.id, text="Введите цену по экспертизе без учета износа в рублях", reply_markup = keyboard)
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, coin_exp, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('back_to_n_exp'))
+    def handle_back_to_n_exp(call):
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        user_id = call.from_user.id
+        try:
+            bot.delete_message(user_id, call.message.message_id)
+        except:
+            pass
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_date_exp"))
+        message = bot.send_message(user_id, text="Введите номер экспертного заключения", reply_markup = keyboard)
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, n_exp, data, user_message_id)
+
+    def coin_exp(message, data, user_message_id):
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_coin_exp"))
+            data.update({"coin_exp": message.text})
+            user_temp_data[user_id]=data
+            msg = bot.send_message(
+                message.chat.id,
+                text="Введите стоимость утраты товарной стоимости в рублях", reply_markup = keyboard
+            )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, coin_exp_izn, data, user_message_id)
+        else:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_n_exp"))
+            msg = bot.send_message(
+                message.chat.id,
+                text="Неправильный формат, цена должна состоять только из цифр в рублях!\nВведите цену по экспертизе без учета износа в рублях",
+                reply_markup = keyboard
+            )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, coin_exp, data, user_message_id)
+
+    def coin_exp_izn(message, data, user_message_id):
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        if message.text.isdigit():  # Проверяем, что текст состоит только из цифр
+            data.update({"coin_exp_izn": message.text})
+            data_admin = get_admin_from_db_by_user_id(user_id)
+            data.update({"org_exp": data_admin['org']})
+            try:
+                from database import save_client_to_db_with_id
+                updated_client_id, updated_data = save_client_to_db_with_id(data)
+                data.update(updated_data)
+                print(data)
+            except Exception as e:
+                print(f"⚠️ Ошибка обновления: {e}")
+
+            # Инициализация сессии загрузки
+            upload_sessions[user_id] = {
+                'client_id': data['client_id'],
+                'photos': [],
+                'message_id': None
+            }
+            
+            # Отправляем сообщение с инструкцией
+            msg = bot.send_message(
+                user_id,
+                "📸 Загрузите одну или несколько фотографий калькуляции\n\n"
+                "После загрузки всех фото нажмите кнопку 'Завершить загрузку'",
+                reply_markup=create_upload_keyboard()
+            )
+            
+            # Сохраняем ID сообщения для последующего редактирования
+            upload_sessions[user_id]['message_id'] = msg.message_id
+            
+        else:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_coin_exp"))
+            msg = bot.send_message(
+                message.chat.id,
+                text="Неправильный формат, цена должна состоять только из цифр в рублях!\nВведите стоимость утраты товарной стоимости в рублях",
+                reply_markup = keyboard
+            )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, coin_exp, data, user_message_id)
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('back_to_coin_exp'))
+    def handle_back_to_coin_exp(call):
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        user_id = call.from_user.id
+        try:
+            bot.delete_message(user_id, call.message.message_id)
+        except:
+            pass
+        data = user_temp_data[user_id]
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_n_exp"))
+        message = bot.send_message(user_id, text="Введите цену по экспертизе без учета износа в рублях", reply_markup = keyboard)
+        user_message_id = message.message_id
+        bot.register_next_step_handler(message, coin_exp, data, user_message_id)
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith('download_calc_'))
     def handle_download_calc(call):
         client_id = call.data.split('_')[-1]
@@ -336,9 +518,36 @@ def setup_appraiser_handlers(bot, user_temp_data):
             # Удаляем сообщение с кнопкой
             bot.delete_message(chat_id, session['message_id'])
             keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"appraiser_view_contract_{upload_sessions[chat_id]['client_id']}"))
+            keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=get_contract_callback(chat_id, upload_sessions[chat_id]['client_id'])))
             # Отправляем подтверждение
-            notify_pretension_department(data['client_id'], data['fio'])
+            # Начисляем оценщику за калькуляцию
+            try:
+                db_instance = DatabaseManager()
+                with db_instance.get_connection() as conn:
+                    with conn.cursor() as cursor:
+                        # Проверяем/создаем запись финансов
+                        cursor.execute("""
+                            INSERT INTO appraiser_finances (appraiser_id, balance, total_earned)
+                            VALUES (%s, 3000, 3000)
+                            ON CONFLICT (appraiser_id) DO UPDATE
+                            SET balance = appraiser_finances.balance + 3000,
+                                total_earned = appraiser_finances.total_earned + 3000,
+                                last_updated = CURRENT_TIMESTAMP
+                        """, (str(call.from_user.id),))
+                        
+                        # Записываем в историю начислений
+                        cursor.execute("""
+                            INSERT INTO appraiser_earnings_history (appraiser_id, client_id, amount)
+                            VALUES (%s, %s, 3000)
+                        """, (str(call.from_user.id), upload_sessions[chat_id]['client_id']))
+                        
+                        conn.commit()
+                        print(f"✅ Начислено 3000 руб оценщику {call.from_user.id} за калькуляцию {upload_sessions[chat_id]['client_id']}")
+            except Exception as e:
+                print(f"❌ Ошибка начисления оценщику: {e}")
+                import traceback
+                traceback.print_exc()
+
             bot.send_message(
                 chat_id,
                 f"✅ Калькуляция успешно сохранена!\n"
@@ -357,10 +566,15 @@ def setup_appraiser_handlers(bot, user_temp_data):
     # Обработчик для фото через lambda с проверкой состояния
     @bot.message_handler(
         content_types=['photo'],
-        func=lambda message: message.chat.id in upload_sessions
+        func=lambda message: message.chat.id in upload_sessions and 'photos' in upload_sessions.get(message.chat.id, {})
     )
     def handle_calc_photo(message):
         chat_id = message.chat.id
+        print(1)
+        # Проверяем, что сессия все еще активна
+        if chat_id not in upload_sessions:
+            return
+            
         session = upload_sessions[chat_id]
         
         try:
@@ -370,7 +584,7 @@ def setup_appraiser_handlers(bot, user_temp_data):
             downloaded_file = bot.download_file(file_info.file_path)
             
             # Сохраняем фото во временную папку
-            temp_path = f"temp_{chat_id}_{len(session['photos'])}.jpg"
+            temp_path = f"temp_calc_{chat_id}_{len(session['photos'])}.jpg"
             with open(temp_path, 'wb') as new_file:
                 new_file.write(downloaded_file)
             
@@ -378,21 +592,151 @@ def setup_appraiser_handlers(bot, user_temp_data):
             session['photos'].append(temp_path)
             
             # Удаляем сообщение пользователя с фото
-            bot.delete_message(chat_id, message.message_id)
+            try:
+                bot.delete_message(chat_id, message.message_id)
+            except:
+                pass
             
             # Обновляем сообщение бота
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=session['message_id'],
-                text=f"📸 Фото загружено ({len(session['photos'])} фото)\n\n"
-                    "Продолжайте загружать фото или нажмите 'Завершить загрузку'",
-                reply_markup=create_upload_keyboard()
-            )
-            
+            try:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=session['message_id'],
+                    text=f"📸 Фото загружено ({len(session['photos'])} фото)\n\n"
+                        "Продолжайте загружать фото или нажмите 'Завершить загрузку'",
+                    reply_markup=create_upload_keyboard()
+                )
+            except Exception as e:
+                print(f"Ошибка обновления сообщения: {e}")
+                
         except Exception as e:
             logging.error(f"Error processing photo: {e}")
+            import traceback
+            traceback.print_exc()
             bot.send_message(chat_id, "❌ Ошибка при загрузке фото")
+    @bot.callback_query_handler(func=lambda call: call.data == "appraiser_finances")
+    @prevent_double_click(timeout=3.0)
+    def appraiser_finances_handler(call):
+        """Финансы оценщика"""
+        appraiser_id = call.from_user.id
+        db = DatabaseManager()
+        balance_data = db.get_appraiser_balance(str(appraiser_id))
+        monthly_earning = db.get_appraiser_monthly_earning(str(appraiser_id))
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("💸 Заказать вывод", callback_data="request_appraiser_withdrawal"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="callback_start"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"💰 Финансы\n\n"
+                f"📊 Ваш заработок за месяц: {monthly_earning:.2f} руб.\n"
+                f"💵 Баланс: {balance_data['balance']:.2f} руб.",
+            reply_markup=keyboard
+        )
 
+    @bot.callback_query_handler(func=lambda call: call.data == "request_appraiser_withdrawal")
+    @prevent_double_click(timeout=3.0)
+    def request_appraiser_withdrawal_handler(call):
+        """Запрос на вывод средств оценщиком"""
+        appraiser_id = call.from_user.id
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="💸 Введите сумму для вывода:"
+        )
+        
+        bot.register_next_step_handler(call.message, process_appraiser_withdrawal_amount, appraiser_id, call.message.message_id)
+
+    def process_appraiser_withdrawal_amount(message, appraiser_id, prev_message_id):
+        """Обработка суммы вывода оценщика"""
+        try:
+            bot.delete_message(message.chat.id, prev_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        
+        db = DatabaseManager()
+        try:
+            amount = float(message.text.strip())
+        except ValueError:
+            msg = bot.send_message(
+                message.chat.id,
+                "❌ Неверный формат. Введите число:"
+            )
+            bot.register_next_step_handler(msg, process_appraiser_withdrawal_amount, appraiser_id, msg.message_id)
+            return
+        
+        if amount <= 0:
+            msg = bot.send_message(
+                message.chat.id,
+                "❌ Сумма должна быть положительной. Введите снова:"
+            )
+            bot.register_next_step_handler(msg, process_appraiser_withdrawal_amount, appraiser_id, msg.message_id)
+            return
+        
+        balance_data = db.get_appraiser_balance(str(appraiser_id))
+        if amount > balance_data['balance']:
+            msg = bot.send_message(
+                message.chat.id,
+                f"❌ Недостаточно средств. Ваш баланс: {balance_data['balance']:.2f} руб.\n"
+                f"Введите сумму не больше баланса:"
+            )
+            bot.register_next_step_handler(msg, process_appraiser_withdrawal_amount, appraiser_id, msg.message_id)
+            return
+        
+        # Создаем заявку
+        appraiser_data = get_admin_from_db_by_user_id(appraiser_id)
+        appraiser_fio = appraiser_data.get('fio', 'Оценщик')
+        
+        withdrawal_id = db.create_withdrawal_request(str(appraiser_id), appraiser_fio, amount)
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+        
+        if withdrawal_id:
+            bot.send_message(
+                message.chat.id,
+                f"✅ Заявка на вывод {amount:.2f} руб. отправлена на подпись.",
+                reply_markup=keyboard
+            )
+            
+            # Уведомляем всех директоров
+            notify_directors_about_withdrawal(bot, appraiser_fio, amount)
+        else:
+            bot.send_message(
+                message.chat.id,
+                "❌ Ошибка создания заявки. Попробуйте позже.",
+                reply_markup=keyboard
+            )
+
+    def notify_directors_about_withdrawal(bot, employee_fio, amount):
+        """Уведомить всех директоров о заявке на вывод"""
+        db_instance = DatabaseManager()
+        try:
+            with db_instance.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT user_id FROM admins 
+                        WHERE admin_value = 'Бухгалтер'
+                    """)
+                    directors = cursor.fetchall()
+                    
+                    for director in directors:
+                        try:
+                            keyboard = types.InlineKeyboardMarkup()
+                            keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+                            bot.send_message(
+                                director[0],
+                                f"📝 Поступил документ на подпись от {employee_fio}\n"
+                                f"💰 Сумма: {amount:.2f} руб.",
+                                reply_markup=keyboard
+                            )
+                        except Exception as e:
+                            print(f"Не удалось уведомить директора {director[0]}: {e}")
+        except Exception as e:
+            print(f"Ошибка уведомления директоров: {e}")
     @bot.callback_query_handler(func=lambda call: call.data.startswith("appraiser_calc"))
     @prevent_double_click(timeout=3.0)
     def appraiser_calc_handler(call):
@@ -418,6 +762,7 @@ def setup_appraiser_handlers(bot, user_temp_data):
                         INNER JOIN pending_approvals pa ON c.client_id = pa.client_id
                         WHERE pa.document_type = 'payment' 
                         AND pa.status = 'approved'
+                        AND (c.calculation IS NULL OR c.calculation != 'Загружена')
                         ORDER BY c.created_at DESC
                     """)
                     all_contracts = cursor.fetchall()
@@ -474,6 +819,7 @@ def setup_appraiser_handlers(bot, user_temp_data):
         # Кнопки для выбора договора (по 5 в ряд)
         buttons = []
         for i, contract in enumerate(page_contracts, start=start_idx + 1):
+
             btn = types.InlineKeyboardButton(
                 f"{i}",
                 callback_data=f"appraiser_view_contract_{contract['client_id']}"
@@ -581,3 +927,26 @@ def cleanup_messages(bot, chat_id, message_id, count):
             bot.delete_message(chat_id, message_id - i)
         except:
             pass
+
+def get_contract_callback(user_id, client_id):
+    """Определяет правильный callback для просмотра договора в зависимости от роли пользователя"""
+    from database import get_admin_from_db_by_user_id
+    
+    admin_data = get_admin_from_db_by_user_id(user_id)
+    
+    admin_value = admin_data.get('admin_value', '')
+    
+    if admin_value == 'Агент':
+        return f"agent_view_contract_{client_id}"
+    if admin_value == 'Администратор':
+        return f"administrator_view_contract_{client_id}"
+    if admin_value == 'Оценщик':
+        return f"appraiser_view_contract_{client_id}"
+    if admin_value == 'Претензионный отдел':
+        return f"pret_view_contract_{client_id}"
+    if admin_value == 'Претензионный отдел':
+        return f"isk_view_contract_{client_id}"
+    if admin_value == 'Юрист':
+        return f"pret_view_contract_{client_id}"
+    
+    return f"view_contract_{client_id}"
