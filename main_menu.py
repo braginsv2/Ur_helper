@@ -10,7 +10,7 @@ import re
 import psycopg2.extras
 from word_utils import create_fio_data_file, replace_words_in_word, get_next_business_date
 from functools import wraps
-upload_sessions = {}
+
 active_callbacks = {}
 callback_lock = threading.Lock()
 def cleanup_messages(bot, chat_id, message_id, count):
@@ -82,11 +82,13 @@ def show_main_menu(bot, message):
     elif admin_value == "Юрист":
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_city_clients")
         btn2 = types.InlineKeyboardButton("📝 Исковые заявления", callback_data="director_approvals")
-        btn3 = types.InlineKeyboardButton("💰 Финансы", callback_data="ur_finances")
+        btn3 = types.InlineKeyboardButton("📊 Скачать таблицу по клиентам", callback_data="btn_output")
+
         
         keyboard.add(btn1)
         keyboard.add(btn2)
         keyboard.add(btn3)
+
 
     elif admin_value == "Директор офиса":
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_city_clients")
@@ -105,11 +107,9 @@ def show_main_menu(bot, message):
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
         btn2 = types.InlineKeyboardButton("👨‍💼 Скачать таблицу по агентам", callback_data="btn_export_all_admins")
         btn3 = types.InlineKeyboardButton("🔄 Добавить сотрудника", callback_data="btn_change_role_agent")
-        btn4 = types.InlineKeyboardButton("💰 Финансы", callback_data="expert_finances")
         keyboard.add(btn1)
         keyboard.add(btn2)
         keyboard.add(btn3)
-        keyboard.add(btn4)
     
     elif admin_value == "Оценщик":
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database_appraiser")
@@ -123,24 +123,20 @@ def show_main_menu(bot, message):
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
         btn2 = types.InlineKeyboardButton("✍️ На подпись", callback_data="director_signatures")
         btn3 = types.InlineKeyboardButton("📊 Какая-нибудь таблица", callback_data="btn_export_all_admins")
-        btn4 = types.InlineKeyboardButton("💰 Финансы", callback_data="accountant_finances")
         
         keyboard.add(btn1)
         keyboard.add(btn2)
         keyboard.add(btn3)
-        keyboard.add(btn4)
 
     elif admin_value == "Исковой отдел":
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
         btn2 = types.InlineKeyboardButton("📝 Составить иск", callback_data="director_approvals")
-        btn3 = types.InlineKeyboardButton("💰 Финансы", callback_data="urist_finances")
         keyboard.add(btn1)
         keyboard.add(btn2)
-        keyboard.add(btn3)
     elif admin_value == "Претензионный отдел":
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database_pret")
         btn2 = types.InlineKeyboardButton("📝 Составить документ", callback_data="create_docs_pret_department")
-        btn3 = types.InlineKeyboardButton("💰 Финансы", callback_data="urist_finances")
+        btn3 = types.InlineKeyboardButton("📊 Скачать таблицу по клиентам", callback_data="btn_output")
         keyboard.add(btn1)
         keyboard.add(btn2)
         keyboard.add(btn3)
@@ -149,7 +145,20 @@ def show_main_menu(bot, message):
         btn2 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
         btn3 = types.InlineKeyboardButton("📊 Скачать таблицу по клиентам", callback_data="btn_output")
         btn4 = types.InlineKeyboardButton("👨‍💼 Скачать таблицу по агентам", callback_data="btn_export_all_admins")
-        btn5 = types.InlineKeyboardButton("💰 Финансы", callback_data="tech_dir_finances")
+        btn6 = types.InlineKeyboardButton("👤 Личный кабинет", callback_data="personal_cabinet")
+        
+        keyboard.add(btn1)
+        keyboard.add(btn2)
+        keyboard.add(btn3)
+        keyboard.add(btn4)
+        keyboard.add(btn6)
+    
+    elif admin_value == "Генеральный директор":
+        btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
+        btn2 = types.InlineKeyboardButton("📊 Скачать таблицу по клиентам", callback_data="btn_output")
+        btn3 = types.InlineKeyboardButton("👨‍💼 Скачать таблицу по агентам", callback_data="btn_export_all_admins")
+        btn4 = types.InlineKeyboardButton("🔄 Изменить роль", callback_data="btn_change_role")
+        btn5 = types.InlineKeyboardButton("✍️ На подпись", callback_data="director_signatures")
         btn6 = types.InlineKeyboardButton("👤 Личный кабинет", callback_data="personal_cabinet")
         
         keyboard.add(btn1)
@@ -158,19 +167,6 @@ def show_main_menu(bot, message):
         keyboard.add(btn4)
         keyboard.add(btn5)
         keyboard.add(btn6)
-    
-    elif admin_value == "Генеральный директор":
-        btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
-        btn2 = types.InlineKeyboardButton("📊 Скачать таблицу по клиентам", callback_data="btn_output")
-        btn3 = types.InlineKeyboardButton("👨‍💼 Скачать таблицу по агентам", callback_data="btn_export_all_admins")
-        btn4 = types.InlineKeyboardButton("🔄 Изменить роль", callback_data="btn_change_role")
-        btn5 = types.InlineKeyboardButton("👤 Личный кабинет", callback_data="personal_cabinet")
-        
-        keyboard.add(btn1)
-        keyboard.add(btn2)
-        keyboard.add(btn3)
-        keyboard.add(btn4)
-        keyboard.add(btn5)
     
     else:
         bot.send_message(
@@ -238,11 +234,13 @@ def show_main_menu_by_user_id(bot, user_id):
     elif admin_value == "Юрист":
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_city_clients")
         btn2 = types.InlineKeyboardButton("📝 Исковые заявления", callback_data="director_approvals")
-        btn3 = types.InlineKeyboardButton("💰 Финансы", callback_data="ur_finances")
+        btn3 = types.InlineKeyboardButton("📊 Скачать таблицу по клиентам", callback_data="btn_output")
+
         
         keyboard.add(btn1)
         keyboard.add(btn2)
         keyboard.add(btn3)
+
 
     elif admin_value == "Директор офиса":
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_city_clients")
@@ -261,11 +259,11 @@ def show_main_menu_by_user_id(bot, user_id):
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
         btn2 = types.InlineKeyboardButton("👨‍💼 Скачать таблицу по агентам", callback_data="btn_export_all_admins")
         btn3 = types.InlineKeyboardButton("🔄 Добавить сотрудника", callback_data="btn_change_role_agent")
-        btn4 = types.InlineKeyboardButton("💰 Финансы", callback_data="expert_finances")
+
         keyboard.add(btn1)
         keyboard.add(btn2)
         keyboard.add(btn3)
-        keyboard.add(btn4)
+
     
     elif admin_value == "Оценщик":
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database_appraiser")
@@ -279,24 +277,23 @@ def show_main_menu_by_user_id(bot, user_id):
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
         btn2 = types.InlineKeyboardButton("✍️ На подпись", callback_data="director_signatures")
         btn3 = types.InlineKeyboardButton("📊 Какая-нибудь таблица", callback_data="btn_export_all_admins")
-        btn4 = types.InlineKeyboardButton("💰 Финансы", callback_data="accountant_finances")
+
         
         keyboard.add(btn1)
         keyboard.add(btn2)
         keyboard.add(btn3)
-        keyboard.add(btn4)
 
     elif admin_value == "Исковой отдел":
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
         btn2 = types.InlineKeyboardButton("📝 Составить иск", callback_data="director_approvals")
-        btn3 = types.InlineKeyboardButton("💰 Финансы", callback_data="urist_finances")
+
         keyboard.add(btn1)
         keyboard.add(btn2)
-        keyboard.add(btn3)
+
     elif admin_value == "Претензионный отдел":
         btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database_pret")
         btn2 = types.InlineKeyboardButton("📝 Составить документ", callback_data="create_docs_pret_department")
-        btn3 = types.InlineKeyboardButton("💰 Финансы", callback_data="urist_finances")
+        btn3 = types.InlineKeyboardButton("📊 Скачать таблицу по клиентам", callback_data="btn_output")
         keyboard.add(btn1)
         keyboard.add(btn2)
         keyboard.add(btn3)
@@ -305,7 +302,20 @@ def show_main_menu_by_user_id(bot, user_id):
         btn2 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
         btn3 = types.InlineKeyboardButton("📊 Скачать таблицу по клиентам", callback_data="btn_output")
         btn4 = types.InlineKeyboardButton("👨‍💼 Скачать таблицу по агентам", callback_data="btn_export_all_admins")
-        btn5 = types.InlineKeyboardButton("💰 Финансы", callback_data="tech_dir_finances")
+        btn6 = types.InlineKeyboardButton("👤 Личный кабинет", callback_data="personal_cabinet")
+        
+        keyboard.add(btn1)
+        keyboard.add(btn2)
+        keyboard.add(btn3)
+        keyboard.add(btn4)
+        keyboard.add(btn6)
+    
+    elif admin_value == "Генеральный директор":
+        btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
+        btn2 = types.InlineKeyboardButton("📊 Скачать таблицу по клиентам", callback_data="btn_output")
+        btn3 = types.InlineKeyboardButton("👨‍💼 Скачать таблицу по агентам", callback_data="btn_export_all_admins")
+        btn4 = types.InlineKeyboardButton("🔄 Изменить роль", callback_data="btn_change_role")
+        btn5 = types.InlineKeyboardButton("✍️ На подпись", callback_data="director_signatures")
         btn6 = types.InlineKeyboardButton("👤 Личный кабинет", callback_data="personal_cabinet")
         
         keyboard.add(btn1)
@@ -314,19 +324,6 @@ def show_main_menu_by_user_id(bot, user_id):
         keyboard.add(btn4)
         keyboard.add(btn5)
         keyboard.add(btn6)
-    
-    elif admin_value == "Генеральный директор":
-        btn1 = types.InlineKeyboardButton("🔍 Искать в базе", callback_data="btn_search_database")
-        btn2 = types.InlineKeyboardButton("📊 Скачать таблицу по клиентам", callback_data="btn_output")
-        btn3 = types.InlineKeyboardButton("👨‍💼 Скачать таблицу по агентам", callback_data="btn_export_all_admins")
-        btn4 = types.InlineKeyboardButton("🔄 Изменить роль", callback_data="btn_change_role")
-        btn5 = types.InlineKeyboardButton("👤 Личный кабинет", callback_data="personal_cabinet")
-        
-        keyboard.add(btn1)
-        keyboard.add(btn2)
-        keyboard.add(btn3)
-        keyboard.add(btn4)
-        keyboard.add(btn5)
 
     bot.send_message(
         user_id,
@@ -335,7 +332,7 @@ def show_main_menu_by_user_id(bot, user_id):
     )
 
 
-def setup_main_menu_handlers(bot, user_temp_data):
+def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
     """Регистрация обработчиков главного меню"""
     import base64
     import qrcode
@@ -837,7 +834,8 @@ def setup_main_menu_handlers(bot, user_temp_data):
         
         # Обновляем роль в БД
         success = update_admin_role(admin_id, "Клиент")
-        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
         if success:
             msg = bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -845,7 +843,8 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 text=f"✅ Роль успешно изменена!\n\n"
                     f"👤 {admin_data.get('fio')}\n"
                     f"Старая роль: {admin_data.get('admin_value')}\n"
-                    f"Новая роль: Клиент"
+                    f"Новая роль: Клиент",
+                    reply_markup = keyboard
             )
             
             # Очищаем временные данные
@@ -853,19 +852,6 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 user_temp_data[user_id].pop('change_role_agent_admin_id', None)
                 user_temp_data[user_id].pop('change_role_agent_admin_data', None)
             
-            # Возвращаемся в главное меню через 2 секунды
-            import time
-            time.sleep(2)
-            
-            # Создаем объект message для show_main_menu
-            class FakeMessage:
-                def __init__(self, chat_id, from_user_id, msg_id):
-                    self.chat = type('obj', (object,), {'id': chat_id})
-                    self.from_user = type('obj', (object,), {'id': from_user_id})
-                    self.message_id = msg_id
-            
-            fake_msg = FakeMessage(call.message.chat.id, user_id, msg.message_id)
-            show_main_menu(bot, fake_msg)
         else:
             bot.answer_callback_query(call.id, "❌ Ошибка при изменении роли", show_alert=True)
 
@@ -888,7 +874,8 @@ def setup_main_menu_handlers(bot, user_temp_data):
         
         # Обновляем роль в БД
         success = update_admin_role(admin_id, new_role)
-        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
         if success:
             msg = bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -896,7 +883,9 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 text=f"✅ Роль успешно изменена!\n\n"
                     f"👤 {admin_data.get('fio')}\n"
                     f"Старая роль: {admin_data.get('admin_value')}\n"
-                    f"Новая роль: {new_role}"
+                    f"Новая роль: {new_role}",
+                    reply_markup = keyboard
+
             )
             
             # Очищаем временные данные
@@ -904,19 +893,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 user_temp_data[user_id].pop('change_role_agent_admin_id', None)
                 user_temp_data[user_id].pop('change_role_agent_admin_data', None)
             
-            # Возвращаемся в главное меню через 2 секунды
-            import time
-            time.sleep(2)
-            
-            # Создаем объект message для show_main_menu
-            class FakeMessage:
-                def __init__(self, chat_id, from_user_id, msg_id):
-                    self.chat = type('obj', (object,), {'id': chat_id})
-                    self.from_user = type('obj', (object,), {'id': from_user_id})
-                    self.message_id = msg_id
-            
-            fake_msg = FakeMessage(call.message.chat.id, user_id, msg.message_id)
-            show_main_menu(bot, fake_msg)
+
         else:
             bot.answer_callback_query(call.id, "❌ Ошибка при изменении роли", show_alert=True)
     @bot.callback_query_handler(func=lambda call: call.data.startswith("select_admin_for_role_"))
@@ -1017,7 +994,8 @@ def setup_main_menu_handlers(bot, user_temp_data):
         
         # Обновляем роль в БД
         success = update_admin_role(admin_id, "Клиент")
-        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
         if success:
             msg = bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -1025,7 +1003,8 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 text=f"✅ Роль успешно изменена!\n\n"
                      f"👤 {admin_data.get('fio')}\n"
                      f"Старая роль: {admin_data.get('admin_value')}\n"
-                     f"Новая роль: Клиент"
+                     f"Новая роль: Клиент",
+                     reply_markup = keyboard
             )
             
             # Очищаем временные данные
@@ -1033,19 +1012,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 user_temp_data[user_id].pop('change_role_admin_id', None)
                 user_temp_data[user_id].pop('change_role_admin_data', None)
             
-            # Возвращаемся в главное меню через 2 секунды
-            import time
-            time.sleep(2)
             
-            # Создаем объект сообщения для show_main_menu
-            class FakeMessage:
-                def __init__(self, chat_id):
-                    self.chat = type('obj', (object,), {'id': chat_id})
-                    self.from_user = type('obj', (object,), {'id': user_id})
-                    self.message_id = type('obj', (object,), msg.message_id)
-            
-            fake_msg = FakeMessage(call.message.chat.id)
-            show_main_menu(bot, fake_msg)
         else:
             bot.answer_callback_query(call.id, "❌ Ошибка при изменении роли", show_alert=True)
     
@@ -1066,7 +1033,8 @@ def setup_main_menu_handlers(bot, user_temp_data):
         
         # Обновляем роль в БД
         success = update_admin_role(admin_id, new_role)
-        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
         if success:
             msg=bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -1074,7 +1042,8 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 text=f"✅ Роль успешно изменена!\n\n"
                      f"👤 {admin_data.get('fio')}\n"
                      f"Старая роль: {admin_data.get('admin_value')}\n"
-                     f"Новая роль: {new_role}"
+                     f"Новая роль: {new_role}",
+                     reply_markup = keyboard
             )
             
             # Очищаем временные данные
@@ -1641,15 +1610,8 @@ def setup_main_menu_handlers(bot, user_temp_data):
             bot.answer_callback_query(call.id, "❌ Договор не найден", show_alert=True)
             return
         
-        # Парсим contract_data
-        try:
-            if contract_data.get('data_json'):
-                json_data = json.loads(contract_data['data_json'])
-                merged_data = {**contract_data, **json_data}
-            else:
-                merged_data = contract_data
-        except:
-            merged_data = contract_data
+
+        merged_data = contract_data
         
         # Формируем информацию о договоре
         text = f"💳 <b>Оплата юридических услуг</b>\n\n"
@@ -2090,28 +2052,99 @@ def setup_main_menu_handlers(bot, user_temp_data):
                                         
                                         print(f"✅ Начислено 1000 руб агенту/администратору {creator_user_id} за договор {client_id}")
                         except Exception as e:
-                            print(f"❌ Ошибка начисления: {e}")
+                            print(f"❌ Ошибка начисления агенту: {e}")
                             import traceback
                             traceback.print_exc()
+                    
+                    # РЕФЕРАЛЬНАЯ СИСТЕМА: Проверяем, был ли клиент приглашен другим клиентом
+                    cursor.execute("""
+                        SELECT invited_by_user_id, invited_by_type
+                        FROM admins
+                        WHERE user_id = %s AND invited_by_type = 'client'
+                    """, (str(client_user_id),))
+                    
+                    inviter_result = cursor.fetchone()
+                    print(inviter_result)
+                    if inviter_result and inviter_result[0]:
+                        inviter_user_id = inviter_result[0]
+                        
+                        # Проверяем, первый ли это договор приглашенного клиента
+                        cursor.execute("""
+                            SELECT COUNT(*) FROM clients 
+                            WHERE user_id = %s
+                        """, (str(client_user_id),))
+                        
+                        contract_count = cursor.fetchone()[0]
+                        print(contract_count)
+                        # Начисляем только за первый договор
+                        if contract_count == 1:
+                            # Начисляем 300р пригласившему клиенту
+                            cursor.execute("""
+                                SELECT balance FROM client_finances 
+                                WHERE client_id = %s
+                            """, (str(inviter_user_id),))
+                            
+                            balance_result = cursor.fetchone()
+                            
+                            if balance_result:
+                                cursor.execute("""
+                                    UPDATE client_finances 
+                                    SET balance = balance + 300, 
+                                        total_earned = total_earned + 300,
+                                        last_updated = CURRENT_TIMESTAMP
+                                    WHERE client_id = %s
+                                """, (str(inviter_user_id),))
+                            else:
+                                cursor.execute("""
+                                    INSERT INTO client_finances (client_id, balance, total_earned)
+                                    VALUES (%s, 300, 300)
+                                """, (str(inviter_user_id),))
+                            
+                            cursor.execute("""
+                                INSERT INTO client_earnings_history 
+                                (client_id, referred_client_id, amount, earned_at)
+                                VALUES (%s, %s, 300, NOW())
+                            """, (str(inviter_user_id), client_id))
+                            
+                            print(f"✅ Начислено 300 руб. клиенту {inviter_user_id} за реферала {client_id}")
+                            
+                            # Уведомляем пригласившего клиента
+                            try:
+                                inviter_data = get_admin_from_db_by_user_id(inviter_user_id)
+                                if inviter_data:
+                                    keyboard_ref = types.InlineKeyboardMarkup()
+                                    keyboard_ref.add(types.InlineKeyboardButton("💰 Личный кабинет", callback_data="personal_cabinet_client"))
+                                    bot.send_message(
+                                        int(inviter_user_id),
+                                        f"💰 Вам начислено 300 руб. за приглашение клиента!\n\n"
+                                        f"📄 Договор: {client_id}\n"
+                                        f"👤 Приглашенный: {fio}",
+                                        reply_markup=keyboard_ref
+                                    )
+                            except Exception as e:
+                                print(f"Не удалось уведомить приглашающего клиента: {e}")
                     
                     conn.commit()
             
             # Очищаем временные данные
             del user_temp_data[director_id]['payment_approval']
             
-            # Уведомляем клиента
-            try:
-                keyboard = types.InlineKeyboardMarkup()
-                keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"view_contract_{client_id}"))
-                bot.send_message(
-                    int(client_user_id),
-                    f"✅ Оплата по договору {client_id} подтверждена!\n\n"
-                    f"📝 Номер чека: {receipt_number}",
-                    reply_markup=keyboard
-                )
-            except Exception as e:
-                print(f"Не удалось уведомить клиента: {e}")
+            if client_user_id != "8572367590":
+                # Уведомляем клиента
+                try:
+                    keyboard = types.InlineKeyboardMarkup()
+                    keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"view_contract_{client_id}"))
+                    bot.send_message(
+                        int(client_user_id),
+                        f"✅ Оплата по договору {client_id} подтверждена!\n\n"
+                        f"📝 Номер чека: {receipt_number}",
+                        reply_markup=keyboard
+                    )
+                except Exception as e:
+                    print(f"Не удалось уведомить клиента: {e}")
+            
             notify_appraisers_about_payment(bot, client_id, fio)
+            
             # Сообщаем директору с кнопкой "На утверждение"
             keyboard = types.InlineKeyboardMarkup()
             keyboard.add(types.InlineKeyboardButton("📝 На утверждение", callback_data="director_approvals"))
@@ -2544,29 +2577,6 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 "❌ Ошибка создания заявки. Попробуйте позже."
             )
 
-    def notify_directors_about_withdrawal(bot, agent_fio, amount):
-        """Уведомить всех директоров о заявке на вывод"""
-        db = DatabaseManager()
-        try:
-            with db.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                        SELECT user_id FROM admins 
-                        WHERE admin_value = 'Бухгалтер'
-                    """)
-                    directors = cursor.fetchall()
-                    
-                    for director in directors:
-                        try:
-                            bot.send_message(
-                                director[0],
-                                f"📝 Поступил документ на подпись от агента {agent_fio}\n"
-                                f"💰 Сумма: {amount:.2f} руб."
-                            )
-                        except Exception as e:
-                            print(f"Не удалось уведомить директора {director[0]}: {e}")
-        except Exception as e:
-            print(f"Ошибка уведомления директоров: {e}")
     @bot.callback_query_handler(func=lambda call: call.data == "director_approvals")
     @prevent_double_click(timeout=3.0)
     def director_approvals_handler(call):
@@ -2661,6 +2671,25 @@ def setup_main_menu_handlers(bot, user_temp_data):
     @prevent_double_click(timeout=3.0)
     def btn_add_client_handler(call):
         """Новый клиент - Агент вводит ФИО клиента С ПРОВЕРКОЙ"""
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        user_id = call.from_user.id
+
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("👤 Зарегистрировать клиента", callback_data="callback_registr_client"))
+        keyboard.add(types.InlineKeyboardButton("📋 У клиента нет ТГ", callback_data="callback_registr_alone"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="callback_start"))
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Выберите из следующих вариантов",
+            reply_markup=keyboard
+        )
+        
+
+    @bot.callback_query_handler(func=lambda call: call.data == "callback_registr_client")
+    @prevent_double_click(timeout=3.0)
+    def btn_add_client_handler(call):
+        """Новый клиент - Агент вводит ФИО клиента С ПРОВЕРКОЙ"""
         user_id = call.from_user.id
         
         if user_id not in user_temp_data:
@@ -2676,7 +2705,6 @@ def setup_main_menu_handlers(bot, user_temp_data):
         )
         
         bot.register_next_step_handler(call.message, process_add_client_fio_check, user_id, call.message.message_id)
-
 
     def process_add_client_fio_check(message, agent_id, prev_message_id):
         """Обработка ФИО с проверкой зарегистрированных клиентов в admins"""
@@ -2758,6 +2786,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
         )
         
         bot.register_next_step_handler(msg, process_invite_phone_agent, agent_id, msg.message_id)
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith("agent_select_registered_"))
     @prevent_double_click(timeout=3.0)
     def agent_select_registered_client(call):
@@ -3196,7 +3225,13 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 cabinet_text += "<b>Дополнительная информация:</b>\n"
                 cabinet_text += "\n".join(additional_info)
                 cabinet_text += "\n\n"
-        
+        db = DatabaseManager()
+        balance_data = db.get_client_balance(str(user_id))
+
+        if balance_data['balance'] > 0 or balance_data['total_earned'] > 0:
+            cabinet_text += f"\n💰 <b>Реферальный баланс:</b>\n"
+            cabinet_text += f"Доступно: {balance_data['balance']:.2f} руб.\n"
+            cabinet_text += f"Всего заработано: {balance_data['total_earned']:.2f} руб.\n\n"
         # Список договоров
         cabinet_text += f"<b>📋 Ваши договоры ({len(contracts)}):</b>\n"
         
@@ -3215,6 +3250,8 @@ def setup_main_menu_handlers(bot, user_temp_data):
         else:
             cabinet_text += "\n❌ Не оформлено ни одного договора"
         keyboard.add(types.InlineKeyboardButton("✏️ Изменить данные", callback_data="change_data"))
+        if balance_data['balance'] > 0:
+            keyboard.add(types.InlineKeyboardButton("💸 Вывести средства", callback_data="request_client_withdrawal"))
         keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
         
         bot.edit_message_text(
@@ -3224,6 +3261,107 @@ def setup_main_menu_handlers(bot, user_temp_data):
             reply_markup=keyboard,
             parse_mode='HTML'
         )
+    @bot.callback_query_handler(func=lambda call: call.data == "request_client_withdrawal")
+    @prevent_double_click(timeout=3.0)
+    def request_appraiser_withdrawal_handler(call):
+        """Запрос на вывод средств оценщиком"""
+        client_id = call.from_user.id
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="💸 Введите сумму для вывода:"
+        )
+        
+        bot.register_next_step_handler(call.message, process_client_withdrawal_amount, client_id, call.message.message_id)
+
+    def process_client_withdrawal_amount(message, client_id, prev_message_id):
+        """Обработка суммы вывода оценщика"""
+        try:
+            bot.delete_message(message.chat.id, prev_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        
+        db = DatabaseManager()
+        try:
+            amount = float(message.text.strip())
+        except ValueError:
+            msg = bot.send_message(
+                message.chat.id,
+                "❌ Неверный формат. Введите число:"
+            )
+            bot.register_next_step_handler(msg, process_client_withdrawal_amount, client_id, msg.message_id)
+            return
+        
+        if amount <= 0:
+            msg = bot.send_message(
+                message.chat.id,
+                "❌ Сумма должна быть положительной. Введите снова:"
+            )
+            bot.register_next_step_handler(msg, process_client_withdrawal_amount, client_id, msg.message_id)
+            return
+        
+        balance_data = db.get_client_balance(str(client_id))
+        if amount > balance_data['balance']:
+            msg = bot.send_message(
+                message.chat.id,
+                f"❌ Недостаточно средств. Ваш баланс: {balance_data['balance']:.2f} руб.\n"
+                f"Введите сумму не больше баланса:"
+            )
+            bot.register_next_step_handler(msg, process_client_withdrawal_amount, client_id, msg.message_id)
+            return
+        
+        # Создаем заявку
+        client_data = get_admin_from_db_by_user_id(client_id)
+        client_fio = client_data.get('fio', 'Оценщик')
+        
+        withdrawal_id = db.create_withdrawal_request(str(client_id), client_fio, amount)
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+        
+        if withdrawal_id:
+            bot.send_message(
+                message.chat.id,
+                f"✅ Заявка на вывод {amount:.2f} руб. отправлена на подпись.",
+                reply_markup=keyboard
+            )
+            
+            # Уведомляем всех директоров
+            notify_directors_about_withdrawal(bot, client_fio, amount)
+        else:
+            bot.send_message(
+                message.chat.id,
+                "❌ Ошибка создания заявки. Попробуйте позже.",
+                reply_markup=keyboard
+            )
+
+    def notify_directors_about_withdrawal(bot, employee_fio, amount):
+        """Уведомить всех директоров о заявке на вывод"""
+        db_instance = DatabaseManager()
+        try:
+            with db_instance.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT user_id FROM admins 
+                        WHERE admin_value = 'Бухгалтер'
+                    """)
+                    directors = cursor.fetchall()
+                    
+                    for director in directors:
+                        try:
+                            keyboard = types.InlineKeyboardMarkup()
+                            keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+                            bot.send_message(
+                                director[0],
+                                f"📝 Поступил документ на подпись от {employee_fio}\n"
+                                f"💰 Сумма: {amount:.2f} руб.",
+                                reply_markup=keyboard
+                            )
+                        except Exception as e:
+                            print(f"Не удалось уведомить директора {director[0]}: {e}")
+        except Exception as e:
+            print(f"Ошибка уведомления директоров: {e}")
     @bot.callback_query_handler(func=lambda call: call.data == "change_data")
     @prevent_double_click(timeout=3.0)
     def change_registration_data_handler(call):
@@ -3721,6 +3859,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
             bot.answer_callback_query(call.id, "❌ Договор не найден", show_alert=True)
             return
         
+
         # Парсим данные
         try:
             contract_data = json.loads(contract.get('data_json', '{}'))
@@ -3814,7 +3953,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
             if contract_data.get('status', '') == "Оформлен договор" or contract_data.get('status', '') =="Подано заяление на выдачу документов из страховой":
                 keyboard.add(types.InlineKeyboardButton("📋 Заявление в страховую", callback_data=f"zayavlenie_ins_{client_id}"))
 
-        keyboard.add(types.InlineKeyboardButton("📤 Загрузить квитанцию о зачислении", callback_data="download_kvitancia"))
+        keyboard.add(types.InlineKeyboardButton("📤 Добавить выплату от страховой", callback_data="add_osago_payment"))
         keyboard.add(types.InlineKeyboardButton("📸 Загрузить фото ДТП", callback_data="download_foto"))
         keyboard.add(types.InlineKeyboardButton("📤 Загрузить документы", callback_data="download_docs"))
         keyboard.add(types.InlineKeyboardButton("📋 Просмотр данных", callback_data="view_db"))
@@ -3829,39 +3968,109 @@ def setup_main_menu_handlers(bot, user_temp_data):
             reply_markup=keyboard,
             parse_mode='HTML'
         )
-    @bot.callback_query_handler(func=lambda call: call.data.startswith('download_kvitancia'))
-    def handle_download_calc(call):
-        client_id = call.from_user.id
-        chat_id = call.message.chat.id
-        number_id = user_temp_data[client_id]['client_id']
-        # Инициализация сессии загрузки
-        upload_sessions[chat_id] = {
-            'client_id': client_id,
-            'photos': [],
-            'message_id': None,
-            'number_id': number_id
-        }
+    @bot.callback_query_handler(func=lambda call: call.data == "add_osago_payment")
+    @prevent_double_click(timeout=3.0)
+    def handle_add_osago_payment(call):
+        """Запрос суммы выплаты ОСАГО"""
+        user_id = call.from_user.id
+        client_id = user_temp_data[user_id]['client_id']
         
-        # Отправляем сообщение с инструкцией
-        msg = bot.send_message(
-            chat_id,
-            "📸 Загрузите одну или несколько фотографий калькуляции\n\n"
-            "После загрузки всех фото нажмите кнопку 'Завершить загрузку'",
-            reply_markup=create_upload_keyboard()
+        keyboard = types.InlineKeyboardMarkup()
+        callback_data = get_contract_callback(user_id, client_id)
+        keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=callback_data))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="💰 Введите сумму выплаты по ОСАГО (только число):",
+            reply_markup=keyboard
         )
         
-        # Сохраняем ID сообщения для последующего редактирования
-        upload_sessions[chat_id]['message_id'] = msg.message_id
+        bot.register_next_step_handler(call.message, process_osago_amount, user_id, call.message.message_id)
+    def process_osago_amount(message, user_id, prev_message_id):
+        """Обработка суммы выплаты ОСАГО"""
+        try:
+            bot.delete_message(message.chat.id, prev_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
         
-        bot.answer_callback_query(call.id)
+        try:
+            amount = float(message.text.strip().replace(',', '.'))
+        except ValueError:
+            msg = bot.send_message(message.chat.id, "❌ Введите корректное число:")
+            bot.register_next_step_handler(msg, process_osago_amount, user_id, msg.message_id)
+            return
+        
+        client_id = user_temp_data[user_id]['client_id']
+        
+        # Получаем текущее значение coin_osago
+        from database import get_client_from_db_by_client_id
+        client_data = get_client_from_db_by_client_id(client_id)
+        try:
+            data = json.loads(client_data.get('data_json', '{}'))
+        except:
+            data = client_data
+        try:
+            
+            # Получаем текущую сумму (из data_json ИЛИ из основного поля)
+            current_osago = float(data.get('coin_osago', 0))
+            if current_osago == 0 and data.get('coin_osago'):
+                try:
+                    current_osago = float(data.get('coin_osago', 0))
+                except:
+                    current_osago = 0
+                    
+        except Exception as e:
+            print(f"Ошибка получения текущей суммы: {e}")
+            current_osago = 0
+        
+        # Прибавляем новую сумму
+        new_total = current_osago + amount
+        
+        print(f"DEBUG: current_osago={current_osago}, amount={amount}, new_total={new_total}")
+        
+        data['coin_osago'] = str(new_total)  # В основном поле тоже
 
-    def create_upload_keyboard():
+        
+        try:
+            from database import save_client_to_db_with_id
+            updated_client_id, updated_data = save_client_to_db_with_id(data)
+            client_data.update(updated_data)
+            print(client_data)
+        except Exception as e:
+            print(f"⚠️ Ошибка обновления: {e}")
+        
+        # Сохраняем сумму для загрузки квитанции
+        user_temp_data[user_id]['osago_amount'] = amount
+        user_temp_data[user_id]['osago_total'] = new_total
+        
+        # Инициализируем сессию загрузки квитанции
+        upload_sessions[message.chat.id] = {
+            'client_id': user_id,
+            'photos': [],
+            'message_id': None,
+            'number_id': client_id
+        }
+        
+        msg = bot.send_message(
+            message.chat.id,
+            f"✅ Добавлено: {amount} руб.\n"
+            f"💰 Общая сумма выплат: {new_total} руб.\n\n"
+            f"📸 Теперь загрузите квитанцию (одну или несколько фотографий):",
+            reply_markup=create_upload_keyboard_osago()
+        )
+        
+        upload_sessions[message.chat.id]['message_id'] = msg.message_id
+
+    def create_upload_keyboard_osago():
         keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("✅ Завершить загрузку", callback_data="finish_upload_kvitancia"))
-        return keyboard
+        keyboard.add(types.InlineKeyboardButton("✅ Завершить загрузку", callback_data="finish_upload_osago"))
+        return keyboard    
+    
 
-    @bot.callback_query_handler(func=lambda call: call.data == 'finish_upload_kvitancia')
-    def handle_finish_upload(call):
+    @bot.callback_query_handler(func=lambda call: call.data == 'finish_upload_osago')
+    def handle_finish_upload_osago(call):
         chat_id = call.message.chat.id
         
         if chat_id not in upload_sessions or not upload_sessions[chat_id]['photos']:
@@ -3871,21 +4080,40 @@ def setup_main_menu_handlers(bot, user_temp_data):
         session = upload_sessions[chat_id]
         
         try:
-            # Создаем PDF из фото
-            create_kvitancia_pdf(session['photos'], session['number_id'])
-
+            # Определяем имя файла
+            client_id = session['number_id']
+            docs_dir = f"clients/{client_id}/Документы"
             
-
+            # Проверяем существующие квитанции
+            counter = 1
+            filename = "Квитанция.pdf"
+            while os.path.exists(os.path.join(docs_dir, filename)):
+                counter += 1
+                filename = f"Квитанция{counter}.pdf"
+            
+            pdf_path = os.path.join(docs_dir, filename)
+            
+            # Создаем PDF из фото
+            create_kvitancia_pdf(session['photos'], session['number_id'], pdf_path)
+            
             # Удаляем сообщение с кнопкой
             bot.delete_message(chat_id, session['message_id'])
+            
             keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"view_contract_{upload_sessions[chat_id]['client_id']}"))
-
+            user_id = session['client_id']
+            callback_data = get_contract_callback(user_id, client_id)
+            keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=callback_data))
+            
+            osago_amount = user_temp_data.get(user_id, {}).get('osago_amount', 0)
+            osago_total = user_temp_data.get(user_id, {}).get('osago_total', 0)
+            
             bot.send_message(
                 chat_id,
-                f"✅ Квитанция успешно сохранена!\n"
-                f"Загружено фото: {len(session['photos'])}",
-                reply_markup = keyboard
+                f"✅ Квитанция успешно сохранена как '{filename}'!\n"
+                f"💰 Добавлено: {osago_amount} руб.\n"
+                f"💰 Итого выплат: {osago_total} руб.\n"
+                f"📸 Загружено фото: {len(session['photos'])}",
+                reply_markup=keyboard
             )
             
         except Exception as e:
@@ -3894,17 +4122,21 @@ def setup_main_menu_handlers(bot, user_temp_data):
         
         # Очищаем сессию
         del upload_sessions[chat_id]
+        if user_id in user_temp_data:
+            user_temp_data[user_id].pop('osago_amount', None)
+            user_temp_data[user_id].pop('osago_total', None)
+        
         bot.answer_callback_query(call.id)
 
     # Обработчик для фото через lambda с проверкой состояния
     @bot.message_handler(
         content_types=['photo'],
-        func=lambda message: message.chat.id in upload_sessions
+        func=lambda message: message.chat.id in upload_sessions and 'number_id' in upload_sessions.get(message.chat.id, {})
     )
     def handle_calc_photo(message):
         chat_id = message.chat.id
         session = upload_sessions[chat_id]
-        
+        print(4)
         try:
             # Получаем фото максимального качества
             file_id = message.photo[-1].file_id
@@ -3921,27 +4153,53 @@ def setup_main_menu_handlers(bot, user_temp_data):
             
             # Удаляем сообщение пользователя с фото
             bot.delete_message(chat_id, message.message_id)
-            
-            # Обновляем сообщение бота
-            bot.edit_message_text(
+            if upload_sessions[chat_id].get('type', '') == 'insurance_payment':
+                bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=session['message_id'],
                 text=f"📸 Фото загружено ({len(session['photos'])} фото)\n\n"
                     "Продолжайте загружать фото или нажмите 'Завершить загрузку'",
-                reply_markup=create_upload_keyboard()
+                reply_markup=create_upload_keyboard_insurance()
             )
+            elif upload_sessions[chat_id].get('type', '') == 'client_insurance_payment':
+                bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=session['message_id'],
+                text=f"📸 Фото загружено ({len(session['photos'])} фото)\n\n"
+                    "Продолжайте загружать фото или нажмите 'Завершить загрузку'",
+                reply_markup=create_upload_keyboard_client_insurance()
+            )
+            else:
+                # Обновляем сообщение бота
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=session['message_id'],
+                    text=f"📸 Фото загружено ({len(session['photos'])} фото)\n\n"
+                        "Продолжайте загружать фото или нажмите 'Завершить загрузку'",
+                    reply_markup=create_upload_keyboard_osago()
+                )
             
         except Exception as e:
             print(f"Error processing photo: {e}")
             bot.send_message(chat_id, "❌ Ошибка при загрузке фото")
-    def create_kvitancia_pdf(photo_paths, client_id):
+    def create_upload_keyboard_client_insurance():
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("✅ Завершить загрузку", callback_data="finish_upload_client_insurance_payment"))
+        return keyboard
+    def create_upload_keyboard_insurance():
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("✅ Завершить загрузку", callback_data="finish_upload_insurance_payment"))
+        return keyboard
+    
+    def create_kvitancia_pdf(photo_paths, client_id, pdf_path=None):
         """Создает PDF файл из загруженных фото"""
         # Создаем папки если не существуют
         docs_path = f"clients/{client_id}/Документы"
         os.makedirs(docs_path, exist_ok=True)
         
-        pdf_path = os.path.join(docs_path, "Квитанция.pdf")
-        
+        if pdf_path is None:
+            pdf_path = os.path.join(docs_path, "Квитанция.pdf")
+
         # Конвертируем фото в PDF
         images = []
         for photo_path in photo_paths:
@@ -4054,7 +4312,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 response += f"   📅 ДТП: {client.get('date_dtp', 'Не указана')}\n\n"
                 
                 btn_text = f"{i}. {client['fio'][:20]}..."
-                btn_callback = f"admin_view_contract_{client['client_id']}"
+                btn_callback = get_contract_callback(user_id, client['client_id'])
                 keyboard.add(types.InlineKeyboardButton(btn_text, callback_data=btn_callback))
             
             if len(results) > 10:
@@ -4084,7 +4342,8 @@ def setup_main_menu_handlers(bot, user_temp_data):
             bot.answer_callback_query(call.id, "❌ Договор не найден", show_alert=True)
             return
         
-        # Парсим данные
+
+                # Парсим данные
         try:
             contract_data = json.loads(contract.get('data_json', '{}'))
         except:
@@ -4300,7 +4559,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
         client_id = call.data.replace("back_to_contract_", "")
         
         # Переходим обратно к просмотру договора
-        call.data = f"admin_view_contract_{client_id}"
+        call.data = get_contract_callback(call.from_user.id, client_id)
         admin_view_contract_handler(call)
     @bot.callback_query_handler(func=lambda call: call.data == "view_db")
     @prevent_double_click(timeout=3.0)
@@ -4448,7 +4707,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
         if client_user_id:
             try:
                 keyboard = types.InlineKeyboardMarkup()
-                keyboard.add(types.InlineKeyboardButton("📄 К договору", callback_data=f"agent_view_contract_{client_id}"))
+                keyboard.add(types.InlineKeyboardButton("📄 К договору", callback_data=get_contract_callback(client_user_id, client_id)))
                 bot.send_message(
                     int(client_user_id),
                     "✅ Ваша доверенность подтверждена администратором",
@@ -4468,7 +4727,10 @@ def setup_main_menu_handlers(bot, user_temp_data):
         )
         
         # Формируем заявление в страховую
-        data = get_client_from_db_by_client_id(client_id)
+        contract = get_client_from_db_by_client_id(client_id)
+
+        data = contract
+
         if data and data['status'] == 'Оформлен договор':
             zayavlenie_predstavitel_insurance(call, data)
 
@@ -5432,10 +5694,12 @@ def setup_main_menu_handlers(bot, user_temp_data):
                     cursor.execute("""
                         INSERT INTO pending_approvals (client_id, user_id, document_type, document_url, fio)
                         VALUES (%s, %s, %s, %s, %s)
-                    """, (client_id, user_id, 'doverennost', pdf_path, contract['fio']))
+                    """, (client_id, contract['user_id'], 'doverennost', pdf_path, contract['fio']))
                     conn.commit()
-            
-            notify_directors_about_document(bot, client_id, contract['fio'], 'Доверенность')
+            data_admin = get_admin_from_db_by_user_id(user_id)
+            if data_admin['admin_value'] != 'Администратор':
+                # Уведомить всех директоров
+                notify_directors_about_document(bot, client_id, contract['fio'], 'Доверенность')
             
             # Очищаем временные данные
             del user_temp_data[user_id]['dov_not_process']
@@ -6065,7 +6329,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("✅ Оплатил", callback_data="payment_confirm"))
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад к договору", callback_data=f"view_contract_{client_id}"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад к договору", callback_data=get_contract_callback(user_id, client_id)))
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -6097,7 +6361,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
                     cursor.execute("""
                         INSERT INTO pending_approvals (client_id, user_id, document_type, document_url, fio)
                         VALUES (%s, %s, %s, %s, %s)
-                    """, (client_id, user_id, 'payment', '', contract['fio']))
+                    """, (client_id, contract['user_id'], 'payment', '', contract['fio']))
                     cursor.execute("""
                         UPDATE clients 
                         SET data_json = jsonb_set(
@@ -6108,12 +6372,13 @@ def setup_main_menu_handlers(bot, user_temp_data):
                         WHERE client_id = %s
                     """, (client_id,))
                     conn.commit()
-            
-            # Уведомить всех директоров
-            notify_directors_about_document(bot, client_id, contract['fio'], 'Оплата')
+            data_admin = get_admin_from_db_by_user_id(user_id)
+            if data_admin['admin_value'] != 'Администратор':
+                # Уведомить всех директоров
+                notify_directors_about_document(bot, client_id, contract['fio'], 'Оплата')
             
             keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton("◀️ Назад к договору", callback_data=f"view_contract_{client_id}"))
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад к договору", callback_data=get_contract_callback(call.message.chat.id, client_id)))
             
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -6143,7 +6408,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
     def search_agent_clients_handler(message, user_message_id, agent_id, user_temp_data):
         """Обработчик поиска своих клиентов агентом по ФИО"""
         import time
-        
+        user_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -6189,7 +6454,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 response += f"   📅 ДТП: {client.get('date_dtp', 'Не указана')}\n\n"
                 
                 btn_text = f"{i}. {client['fio'][:20]}..."
-                btn_callback = f"agent_view_contract_{client['client_id']}"
+                btn_callback = get_contract_callback(user_id, client['client_id'])
                 keyboard.add(types.InlineKeyboardButton(btn_text, callback_data=btn_callback))
             
             if len(results) > 10:
@@ -6348,12 +6613,12 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 'step': 'parameter',
                 'client_data': merged_data
             }
-            if admin_data and admin_data.get('admin_value') in ['Директор', 'Технический директор', 'Администратор', 'Руководитель офиса', 'Юрист', 'Эксперт']:
+            if admin_data and admin_data.get('admin_value') in ['Директор', 'Технический директор', 'Руководитель офиса', 'Юрист', 'Эксперт']:
                 callback_data = f"admin_view_contract_{client_id}"
             elif admin_data and admin_data.get('admin_value') in ['Клиент']:
                 callback_data = f"view_contract_{client_id}"
             else:
-                callback_data = f"agent_view_contract_{client_id}"
+                callback_data = get_contract_callback(user_id, client_id)
             
             # Создаем клавиатуру для возврата
             keyboard = types.InlineKeyboardMarkup()
@@ -6414,10 +6679,10 @@ def setup_main_menu_handlers(bot, user_temp_data):
             # Возвращаем к просмотру договора
             from database import get_admin_from_db_by_user_id
             admin_data = get_admin_from_db_by_user_id(user_id)
-            if admin_data and admin_data.get('admin_value') in ['Директор', 'Технический директор', 'Администратор', 'Руководитель офиса', 'Юрист', 'Эксперт']:
+            if admin_data and admin_data.get('admin_value') in ['Директор', 'Технический директор', 'Руководитель офиса', 'Юрист', 'Эксперт']:
                 callback_data = f"admin_view_contract_{user_temp_data[user_id]['editing_client']['client_id']}"
             else:
-                callback_data = f"agent_view_contract_{user_temp_data[user_id]['editing_client']['client_id']}"
+                callback_data = get_contract_callback(user_id, user_temp_data[user_id]['editing_client']['client_id'])
             
             bot.send_message(message.chat.id, "Возврат к просмотру договора...")
             return
@@ -6503,12 +6768,12 @@ def setup_main_menu_handlers(bot, user_temp_data):
             from database import get_admin_from_db_by_user_id
             admin_data = get_admin_from_db_by_user_id(user_id)
             
-            if admin_data and admin_data.get('admin_value') in ['Директор', 'Технический директор', 'Администратор', 'Руководитель офиса', 'Юрист', 'Эксперт']:
+            if admin_data and admin_data.get('admin_value') in ['Директор', 'Технический директор', 'Руководитель офиса', 'Юрист', 'Эксперт']:
                 callback_data = f"admin_view_contract_{client_id}"
             elif admin_data and admin_data.get('admin_value') in ['Клиент']:
                 callback_data = f"view_contract_{client_id}"
             else:
-                callback_data = f"agent_view_contract_{client_id}"
+                callback_data = get_contract_callback(user_id, client_id)
             
             # Создаем клавиатуру для возврата
             keyboard = types.InlineKeyboardMarkup()
@@ -6530,10 +6795,10 @@ def setup_main_menu_handlers(bot, user_temp_data):
             
             # Предлагаем вернуться к договору
             keyboard = types.InlineKeyboardMarkup()
-            if admin_data and admin_data.get('admin_value') in ['Директор', 'Технический директор', 'Администратор', 'Руководитель офиса', 'Юрист', 'Эксперт']:
+            if admin_data and admin_data.get('admin_value') in ['Директор', 'Технический директор', 'Руководитель офиса', 'Юрист', 'Эксперт']:
                 callback_data = f"admin_view_contract_{client_id}"
             else:
-                callback_data = f"agent_view_contract_{client_id}"
+                callback_data = get_contract_callback(user_id, client_id)
             
             keyboard.add(types.InlineKeyboardButton("◀️ Назад к договору", callback_data=callback_data))
             bot.send_message(message.chat.id, "Возврат к просмотру договора...", reply_markup=keyboard)
@@ -6653,17 +6918,20 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 
                 # Удаляем временный файл
                 os.unlink(temp_path)
-                
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
                 bot.edit_message_text(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
-                    text="✅ Таблица успешно сформирована и отправлена!"
+                    text="✅ Таблица успешно сформирована и отправлена!",
+                    reply_markup = keyboard
                 )
             else:
                 bot.edit_message_text(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
-                    text="❌ Ошибка при формировании таблицы"
+                    text="❌ Ошибка при формировании таблицы",
+                    reply_markup = keyboard
                 )
         
         except Exception as e:
@@ -6673,18 +6941,6 @@ def setup_main_menu_handlers(bot, user_temp_data):
                 message_id=call.message.message_id,
                 text=f"❌ Ошибка: {e}"
             )
-        
-        # Возвращаем в главное меню
-        import time
-        time.sleep(2)
-        
-        from types import SimpleNamespace
-        fake_message = SimpleNamespace(
-            from_user=SimpleNamespace(id=user_id),
-            chat=SimpleNamespace(id=call.message.chat.id),
-            message_id = call.message.message_id
-        )
-        show_main_menu(bot, fake_message)
 
 
     @bot.callback_query_handler(func=lambda call: call.data == "btn_export_all_admins")
@@ -6904,7 +7160,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
         for i, contract in enumerate(page_contracts, start=start_idx + 1):
             btn = types.InlineKeyboardButton(
                 f"{i}",
-                callback_data=f"agent_view_contract_{contract['client_id']}"
+                callback_data=get_contract_callback(agent_id, contract['client_id'])
             )
             buttons.append(btn)
             
@@ -7399,7 +7655,7 @@ def setup_main_menu_handlers(bot, user_temp_data):
             try:
                 with open(f"Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Опись документов.docx", 'rb') as document_file:
                     keyboard = types.InlineKeyboardMarkup()
-                    keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"agent_view_contract_{data['client_id']}"))    
+                    keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(call.message.chat.id, data['client_id'])))    
                     bot.send_document(call.message.chat.id, document_file, reply_markup = keyboard)   
             except FileNotFoundError:
                 bot.send_message(call.message.chat.id, f"Файл не найден")
@@ -7616,9 +7872,10 @@ def get_contract_callback(user_id, client_id):
     
     admin_value = admin_data.get('admin_value', '')
     
-    if admin_value == 'Агент' or admin_value == 'Администратор':
+    if admin_value == 'Агент':
         return f"agent_view_contract_{client_id}"
-    
+    if admin_value == 'Администратор':
+        return f"administrator_view_contract_{client_id}"
     if admin_value == 'Оценщик':
         return f"appraiser_view_contract_{client_id}"
     if admin_value == 'Претензионный отдел':
@@ -7626,6 +7883,6 @@ def get_contract_callback(user_id, client_id):
     if admin_value == 'Претензионный отдел':
         return f"isk_view_contract_{client_id}"
     if admin_value == 'Юрист':
-        return f"ur_view_contract_{client_id}"
+        return f"pret_view_contract_{client_id}"
     
     return f"view_contract_{client_id}"

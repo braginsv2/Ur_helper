@@ -11,10 +11,11 @@ def check_time_based_messages(bot):
         try:
             check_2_weeks_after_application(bot)
             check_20_days_after_application(bot)
-            time.sleep(3600)  # Проверяем каждый час
+            check_ready_for_pretension(bot)  # ДОБАВИТЬ ЭТУ СТРОКУ
+            time.sleep(60)  # Проверяем каждый час
         except Exception as e:
             print(f"Ошибка в scheduler: {e}")
-            time.sleep(3600)
+            time.sleep(60)
 
 def check_2_weeks_after_application(bot):
     """Проверка 2 недели после заполнения заявления в страховую"""
@@ -105,6 +106,82 @@ def check_2_weeks_after_application(bot):
                         print(f"Ошибка обработки договора {client_id}: {e}")
     except Exception as e:
         print(f"Ошибка в check_2_weeks_after_application: {e}")
+
+def check_ready_for_pretension(bot):
+    """Проверка договоров готовых для претензионного отдела"""
+    try:
+
+        with db.get_connection() as conn:
+            with conn.cursor() as cursor:
+                # Ищем договоры готовые для претензии
+                cursor.execute("""
+                    SELECT client_id, fio, user_id
+                    FROM clients 
+                    WHERE status = 'Ожидание претензии'
+                    AND calculation = 'Загружена'
+                    AND (data_json::jsonb->>'pretension_notified' IS NULL 
+                        OR data_json::jsonb->>'pretension_notified' = 'No')
+                    AND data_json::jsonb->>'doverennost_confirmed' = 'Yes'
+                    AND data_json::jsonb->>'payment_confirmed' = 'Yes'
+                                """)
+                
+                contracts = cursor.fetchall()
+
+                for contract in contracts:
+                    client_id, fio, user_id = contract
+                    
+                    try:
+                        # Уведомляем претензионный отдел
+                        cursor.execute("""
+                            SELECT user_id FROM admins 
+                            WHERE admin_value = 'Претензионный отдел' 
+                        """)
+                        pret_users = cursor.fetchall()
+                        
+                        from telebot import types
+                        for pret_user in pret_users:
+                            try:
+                                keyboard = types.InlineKeyboardMarkup()
+                                keyboard.add(types.InlineKeyboardButton(
+                                    "📄 Перейти к договору", 
+                                    callback_data=f"pret_view_contract_{client_id}"
+                                ))
+                                keyboard.add(types.InlineKeyboardButton(
+                                    "🏠 Главное меню", 
+                                    callback_data="callback_start"
+                                ))
+                                
+                                bot.send_message(
+                                    int(pret_user[0]),
+                                    f"✅ Договор готов для работы\n\n"
+                                    f"📋 Договор: {client_id}\n"
+                                    f"👤 Клиент: {fio}\n\n"
+                                    f"✔️ Калькуляция загружена\n"
+                                    f"✔️ Оплата подтверждена\n"
+                                    f"✔️ Доверенность подтверждена",
+                                    reply_markup=keyboard
+                                )
+                            except Exception as e:
+                                print(f"Не удалось уведомить сотрудника {pret_user[0]}: {e}")
+                        
+                        # Отмечаем что уведомили
+                        cursor.execute("""
+                            UPDATE clients 
+                            SET data_json = jsonb_set(
+                                COALESCE(data_json::jsonb, '{}'::jsonb),
+                                '{pretension_notified}',
+                                '"Yes"'
+                            )
+                            WHERE client_id = %s
+                        """, (client_id,))
+                        conn.commit()
+                        
+                        print(f"Отправлено уведомление претензионному отделу по договору {client_id}")
+                        
+                    except Exception as e:
+                        print(f"Ошибка обработки договора {client_id}: {e}")
+    except Exception as e:
+        print(f"Ошибка в check_ready_for_pretension: {e}")
 
 def check_20_days_after_application(bot):
     """Проверка 20 дней после заполнения заявления в страховую"""
