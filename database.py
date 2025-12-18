@@ -8,7 +8,6 @@ import time
 import random
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
-
 class DatabaseManager:
     def __init__(self, connection_params=None):
         """Инициализация базы данных PostgreSQL"""
@@ -126,8 +125,15 @@ class DatabaseManager:
                         "Na_ins" TEXT,
                         "date_Na_ins" TEXT,
                         date_exp TEXT,
+                        n_exp TEXT,
                         org_exp TEXT,
                         coin_exp TEXT,
+                        fio_sto TEXT,
+                        date_istch_rem TEXT,
+                        name_sto TEXT,
+                        inn_sto TEXT,
+                        index_sto TEXT,
+                        "N_sto" TEXT,
                         date_sto TEXT,
                         time_sto TEXT,
                         address_sto TEXT,
@@ -144,6 +150,7 @@ class DatabaseManager:
                         ombuc Text,
                         data_pret_prin TEXT,
                         data_pret_otv TEXT,
+                        date_ins_otv TEXT,
                         "N_pret_prin" TEXT,
                         date_ombuc TEXT,
                         date_ins_pod TEXT,
@@ -168,6 +175,10 @@ class DatabaseManager:
                         fio_k TEXT,
                         data_dop_osm TEXT,
                         "viborRem" TEXT,
+                        date_exp_ins TEXT,
+                        org_exp_ins TEXT,
+                        coin_exp_ins TEXT,
+                        coin_exp_ins_izn TEXT,
                         date_zayav_sto TEXT,
                         pret_sto TEXT,
                         data_otkaz_sto TEXT,
@@ -209,7 +220,18 @@ class DatabaseManager:
                         calculation TEXT
                     )
                     ''')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS date_exp_ins TEXT')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS org_exp_ins TEXT')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS coin_exp_ins TEXT')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS coin_exp_ins_izn TEXT')
                     cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_id TEXT')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS fio_sto TEXT')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS date_istch_rem TEXT')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS date_ins_otv TEXT')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS name_sto TEXT')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS inn_sto TEXT')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS index_sto TEXT')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS "N_sto" TEXT')
                     cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_id ON clients(agent_id)')
                     cursor.execute('''
                         CREATE TABLE IF NOT EXISTS admins (
@@ -229,14 +251,23 @@ class DatabaseManager:
                             city_admin TEXT NOT NULL,
                             number TEXT,
                             created_at TEXT,
+                            org TEXT,
                             is_active BOOLEAN DEFAULT true,
                             invited_by_user_id TEXT,
                             invited_by_type TEXT
                         )
                     ''')
+                    cursor.execute('ALTER TABLE clients ADD COLUMN IF NOT EXISTS n_exp TEXT')
                     cursor.execute('''
                         ALTER TABLE admins 
                         ADD COLUMN IF NOT EXISTS invited_by_user_id TEXT
+                    ''')
+                    cursor.execute('ALTER TABLE admins ADD COLUMN IF NOT EXISTS org TEXT')
+
+                    cursor.execute('''
+                        UPDATE admins 
+                        SET org = '-' 
+                        WHERE org IS NULL
                     ''')
                     cursor.execute('ALTER TABLE admins ADD COLUMN IF NOT EXISTS fio_k TEXT')
                     cursor.execute('ALTER TABLE admins ADD COLUMN IF NOT EXISTS date_of_birth TEXT')
@@ -247,6 +278,7 @@ class DatabaseManager:
                         ALTER TABLE admins 
                         ADD COLUMN IF NOT EXISTS invited_by_type TEXT
                     ''')
+                    
                     cursor.execute('''
                         ALTER TABLE admins 
                         ADD COLUMN IF NOT EXISTS number TEXT
@@ -351,14 +383,206 @@ class DatabaseManager:
                     ''')
                     cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_earnings_agent_id ON agent_earnings_history(agent_id)')
                     cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_earnings_date ON agent_earnings_history(payment_confirmed_at)')
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS appraiser_finances (
+                            id SERIAL PRIMARY KEY,
+                            appraiser_id TEXT NOT NULL UNIQUE,
+                            balance DECIMAL(10, 2) DEFAULT 0,
+                            total_earned DECIMAL(10, 2) DEFAULT 0,
+                            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ''')
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS client_finances (
+                            id SERIAL PRIMARY KEY,
+                            client_id TEXT NOT NULL UNIQUE,
+                            balance DECIMAL(10, 2) DEFAULT 0,
+                            total_earned DECIMAL(10, 2) DEFAULT 0,
+                            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ''')
 
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS client_earnings_history (
+                            id SERIAL PRIMARY KEY,
+                            client_id TEXT NOT NULL,
+                            referred_client_id TEXT NOT NULL,
+                            amount DECIMAL(10, 2) NOT NULL,
+                            earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ''')
 
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_client_earnings_client_id ON client_earnings_history(client_id)')
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS appraiser_earnings_history (
+                            id SERIAL PRIMARY KEY,
+                            appraiser_id TEXT NOT NULL,
+                            client_id TEXT NOT NULL,
+                            amount DECIMAL(10, 2) NOT NULL,
+                            calculation_uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ''')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_appraiser_earnings_appraiser_id ON appraiser_earnings_history(appraiser_id)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_appraiser_earnings_date ON appraiser_earnings_history(calculation_uploaded_at)')
+
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS pret_finances (
+                            id SERIAL PRIMARY KEY,
+                            pret_id TEXT NOT NULL UNIQUE,
+                            balance DECIMAL(10, 2) DEFAULT 0,
+                            total_earned DECIMAL(10, 2) DEFAULT 0,
+                            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ''')
+                    
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS pret_earnings_history (
+                            id SERIAL PRIMARY KEY,
+                            pret_id TEXT NOT NULL,
+                            client_id TEXT NOT NULL,
+                            amount DECIMAL(10, 2) NOT NULL,
+                            earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ''')
+                    
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_pret_earnings_pret_id ON pret_earnings_history(pret_id)')
+                    cursor.execute('CREATE INDEX IF NOT EXISTS idx_pret_earnings_date ON pret_earnings_history(earned_at)')
+                    
                     conn.commit()
                     
                     print("База данных PostgreSQL инициализирована")
+
         except Exception as e:
             print(f"Ошибка инициализации базы данных: {e}")
             raise e
+    def get_client_balance(self, client_id):
+        """Получить баланс клиента"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute("""
+                        SELECT balance, total_earned FROM client_finances 
+                        WHERE client_id = %s
+                    """, (client_id,))
+                    result = cursor.fetchone()
+                    if result:
+                        return dict(result)
+                    else:
+                        # Создаем запись с нулевым балансом
+                        cursor.execute("""
+                            INSERT INTO client_finances (client_id, balance, total_earned)
+                            VALUES (%s, 0, 0)
+                            RETURNING balance, total_earned
+                        """, (client_id,))
+                        conn.commit()
+                        return {'balance': 0, 'total_earned': 0}
+        except Exception as e:
+            print(f"Ошибка получения баланса клиента: {e}")
+            return {'balance': 0, 'total_earned': 0}
+
+    def add_client_referral_earning(self, client_user_id, referred_contract_id, amount=300.0):
+        """Начислить реферальное вознаграждение клиенту"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Создаем или обновляем баланс
+                    cursor.execute("""
+                        INSERT INTO client_finances (client_id, balance, total_earned)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (client_id) DO UPDATE
+                        SET balance = client_finances.balance + %s,
+                            total_earned = client_finances.total_earned + %s,
+                            last_updated = CURRENT_TIMESTAMP
+                    """, (str(client_user_id), amount, amount, amount, amount))
+                    
+                    # Записываем в историю
+                    cursor.execute("""
+                        INSERT INTO client_earnings_history (client_id, referred_client_id, amount)
+                        VALUES (%s, %s, %s)
+                    """, (str(client_user_id), referred_contract_id, amount))
+                    
+                    conn.commit()
+                    print(f"Начислено {amount} руб. клиенту {client_user_id} за реферала {referred_contract_id}")
+                    return True
+        except Exception as e:
+            print(f"Ошибка начисления реферального вознаграждения: {e}")
+            return False
+    def migrate_existing_pret_users(self):
+        """Миграция существующих пользователей претензионного отдела"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Находим всех пользователей претензионного отдела
+                    cursor.execute("""
+                        SELECT user_id, fio FROM admins 
+                        WHERE admin_value = 'Претензионный отдел' AND is_active = true
+                    """)
+                    pret_users = cursor.fetchall()
+                    
+                    migrated_count = 0
+                    for user_id, fio in pret_users:
+                        # Проверяем, есть ли уже запись в pret_finances
+                        cursor.execute("""
+                            SELECT COUNT(*) FROM pret_finances WHERE pret_id = %s
+                        """, (user_id,))
+                        
+                        if cursor.fetchone()[0] == 0:
+                            # Создаем запись с нулевым балансом
+                            cursor.execute("""
+                                INSERT INTO pret_finances (pret_id, balance, total_earned)
+                                VALUES (%s, 0, 0)
+                            """, (user_id,))
+                            migrated_count += 1
+                            print(f"✅ Создана финансовая запись для {fio} (ID: {user_id})")
+                    
+                    conn.commit()
+                    print(f"Миграция завершена. Обработано пользователей: {migrated_count}")
+                    return migrated_count
+                    
+        except Exception as e:
+            print(f"Ошибка миграции пользователей претензионного отдела: {e}")
+    def get_appraiser_balance(self, appraiser_id):
+        """Получить баланс оценщика"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute("""
+                        SELECT balance, total_earned FROM appraiser_finances 
+                        WHERE appraiser_id = %s
+                    """, (appraiser_id,))
+                    result = cursor.fetchone()
+                    if result:
+                        return dict(result)
+                    else:
+                        # Создаем запись с нулевым балансом
+                        cursor.execute("""
+                            INSERT INTO appraiser_finances (appraiser_id, balance, total_earned)
+                            VALUES (%s, 0, 0)
+                            RETURNING balance, total_earned
+                        """, (appraiser_id,))
+                        conn.commit()
+                        return {'balance': 0, 'total_earned': 0}
+        except Exception as e:
+            print(f"Ошибка получения баланса оценщика: {e}")
+            return {'balance': 0, 'total_earned': 0}
+
+    def get_appraiser_monthly_earning(self, appraiser_id):
+        """Получить заработок оценщика за текущий месяц"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT COALESCE(SUM(amount), 0) as monthly_earning
+                        FROM appraiser_earnings_history 
+                        WHERE appraiser_id = %s 
+                        AND EXTRACT(MONTH FROM calculation_uploaded_at) = EXTRACT(MONTH FROM CURRENT_DATE)
+                        AND EXTRACT(YEAR FROM calculation_uploaded_at) = EXTRACT(YEAR FROM CURRENT_DATE)
+                    """, (appraiser_id,))
+                    result = cursor.fetchone()
+                    return float(result[0]) if result else 0.0
+        except Exception as e:
+            print(f"Ошибка получения месячного заработка оценщика: {e}")
+            return 0.0
     def get_client_contracts(self, user_id):
         """Получение всех договоров клиента по user_id"""
         try:
@@ -420,7 +644,42 @@ class DatabaseManager:
                     print(f"Сохранена статистика: агент {agent_id}, тип {contract_type}, первый договор: {is_first_contract}")
         except Exception as e:
             print(f"Ошибка сохранения статистики агента: {e}")
-
+    def migrate_existing_clients_finances(self):
+        """Миграция существующих клиентов для создания записей в client_finances"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Находим всех клиентов
+                    cursor.execute("""
+                        SELECT user_id, fio FROM admins 
+                        WHERE (admin_value = 'Клиент' OR admin_value = 'Клиент_агент') 
+                        AND is_active = true
+                    """)
+                    clients = cursor.fetchall()
+                    
+                    migrated_count = 0
+                    for user_id, fio in clients:
+                        # Проверяем, есть ли уже запись в client_finances
+                        cursor.execute("""
+                            SELECT COUNT(*) FROM client_finances WHERE client_id = %s
+                        """, (user_id,))
+                        
+                        if cursor.fetchone()[0] == 0:
+                            # Создаем запись с нулевым балансом
+                            cursor.execute("""
+                                INSERT INTO client_finances (client_id, balance, total_earned)
+                                VALUES (%s, 0, 0)
+                            """, (user_id,))
+                            migrated_count += 1
+                            print(f"✅ Создана финансовая запись для клиента {fio} (ID: {user_id})")
+                    
+                    conn.commit()
+                    print(f"Миграция клиентов завершена. Обработано: {migrated_count}")
+                    return migrated_count
+                    
+        except Exception as e:
+            print(f"Ошибка миграции клиентов: {e}")
+            return 0
     def check_if_first_contract_for_invited_client(self, client_user_id):
         """Проверка, первый ли это договор для приглашенного клиента"""
         try:
@@ -555,6 +814,7 @@ class DatabaseManager:
                         
                         # Объединяем существующие данные с новыми (новые имеют приоритет)
                         existing_data_clean = {k: v for k, v in existing_data.items() if k != 'data_json'}
+                        new_data_clean = {k: v for k, v in data.items() if k != 'data_json'}
                         merged_data = {**existing_data_clean, **data}
                         merged_data['client_id'] = existing_client['client_id'] # Сохраняем существующий client_id
                         
@@ -582,8 +842,8 @@ class DatabaseManager:
                             fio_culp=%s, marks_culp=%s, number_auto_culp=%s, number_photo=%s, place=%s,
                             bank=%s, bank_account=%s, bank_account_corr=%s, "BIK"=%s, "INN"=%s,
                             created_at=%s, data_json=%s, sobstvenik=%s, fio_sobs=%s, date_of_birth_sobs=%s, answer_ins=%s, analis_ins=%s,
-                            vibor=%s, vibor1=%s, "Nv_ins"=%s, date_coin_ins=%s, "Na_ins"=%s, "date_Na_ins"=%s, date_exp=%s, org_exp=%s, coin_exp=%s, 
-                            date_sto=%s, time_sto=%s, address_sto=%s, coin_exp_izn=%s, coin_osago=%s, coin_not=%s, 
+                            vibor=%s, vibor1=%s, "Nv_ins"=%s, date_coin_ins=%s, "Na_ins"=%s, "date_Na_ins"=%s, date_exp=%s, n_exp=%s, org_exp=%s, coin_exp=%s, 
+                            date_sto=%s, name_sto=%s, inn_sto=%s, index_sto=%s, "N_sto"=%s, time_sto=%s, address_sto=%s, coin_exp_izn=%s, coin_osago=%s, coin_not=%s, 
                             "N_dov_not"=%s, data_dov_not=%s, fio_not=%s, number_not=%s, date_ins=%s, date_pret=%s, pret=%s, ombuc=%s,data_pret_prin=%s,
                             data_pret_otv=%s,"N_pret_prin"=%s, date_ombuc=%s,date_ins_pod=%s, seria_vu_culp=%s, number_vu_culp=%s,data_vu_culp=%s, date_of_birth_culp=%s,
                             index_culp=%s,address_culp=%s,number_culp=%s, "N_viplat_work"=%s, date_viplat_work=%s, "N_plat_por"=%s, date_plat_por=%s, sud=%s, gos_money=%s,
@@ -591,7 +851,7 @@ class DatabaseManager:
                             address_sto_main=%s, data_sto_main=%s, time_sto_main=%s, city_sto=%s, "Done"=%s, city=%s, year=%s, street=%s, "N_gui"=%s, date_gui=%s, "N_prot"=%s, date_prot=%s,
                             date_road=%s, "N_kv_not"=%s, date_kv_not=%s, "N_kv_ur"=%s, date_kv_ur=%s, "N_kv_exp"=%s, status=%s, fio_c=%s, fio_c_k=%s, seria_pasport_c=%s,number_pasport_c=%s,
                             where_pasport_c=%s, when_pasport_c=%s, address_c=%s, date_of_birth_c=%s, coin_c=%s, city_birth_c=%s, index_postal_c=%s, number_c=%s, money_exp=%s, user_id = %s,
-                            agent_id=%s, ur_money=%s, calculation=%s
+                            agent_id=%s, ur_money=%s, calculation=%s, date_ins_otv=%s, fio_sto=%s, date_istch_rem=%s, date_exp_ins=%s, org_exp_ins=%s, coin_exp_ins=%s, coin_exp_ins_izn=%s
                         WHERE client_id=%s
                         '''
                         
@@ -699,7 +959,7 @@ class DatabaseManager:
                             bank , bank_account , bank_account_corr , number_photo , place , "BIK" , "INN" , created_at,
                             data_json , sobstvenik , fio_sobs , date_of_birth_sobs , answer_ins , analis_ins ,
                             vibor , vibor1 , "Nv_ins" , date_coin_ins , "Na_ins" , "date_Na_ins" , 
-                            date_exp , org_exp , coin_exp , date_sto , time_sto , address_sto , 
+                            date_exp , n_exp , org_exp , coin_exp , date_sto , name_sto, inn_sto, index_sto, "N_sto", time_sto , address_sto , 
                             coin_exp_izn , coin_osago , coin_not , "N_dov_not" , data_dov_not , fio_not ,
                             number_not , date_ins , date_pret, pret, ombuc, data_pret_prin,
                             data_pret_otv, "N_pret_prin", date_ombuc, date_ins_pod, seria_vu_culp ,number_vu_culp ,
@@ -708,17 +968,18 @@ class DatabaseManager:
                             date_isk, dop_osm, ev, address_park , fio_k, data_dop_osm, "viborRem", 
                             date_zayav_sto, pret_sto, data_otkaz_sto, date_napr_sto, address_sto_main, data_sto_main,
                             time_sto_main, city_sto, "Done", city, year, street, 
-                            "N_gui", date_gui, "N_prot", date_prot, date_road, "N_kv_not", 
+                            "N_gui", date_gui, "N_prot", date_prot, date_road, "N_kv_not", date_ins_otv, 
                             date_kv_not, "N_kv_ur", date_kv_ur, "N_kv_exp", status, fio_c,
                             fio_c_k, seria_pasport_c,number_pasport_c, where_pasport_c, when_pasport_c, address_c, 
-                            date_of_birth_c, coin_c, city_birth_c, index_postal_c, number_c, money_exp, user_id, agent_id, ur_money, calculation 
+                            date_of_birth_c, coin_c, city_birth_c, index_postal_c, number_c, money_exp, user_id, agent_id, ur_money, calculation ,
+                            fio_sto, date_istch_rem, date_exp_ins, org_exp_ins, coin_exp_ins, coin_exp_ins_izn
                         ) VALUES (  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                    %s, %s
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                                     )
                         ON CONFLICT (client_id) DO NOTHING
                         RETURNING id
@@ -882,9 +1143,14 @@ class DatabaseManager:
                 'Na_ins': data.get('Na_ins', ''),
                 'date_Na_ins': data.get('date_Na_ins', ''),
                 'date_exp': data.get('date_exp', ''),
+                'n_exp': data.get('n_exp', ''),
                 'org_exp': data.get('org_exp', ''),
                 'coin_exp': data.get('coin_exp', ''),
                 'date_sto': data.get('date_sto', ''),
+                'name_sto': data.get('name_sto', ''),
+                'inn_sto': data.get('inn_sto', ''),
+                'index_sto': data.get('index_sto', ''),
+                'N_sto': data.get('N_sto', ''),
                 'time_sto': data.get('time_sto', ''),
                 'address_sto': data.get('address_sto', ''), 
                 'coin_exp_izn': data.get('coin_exp_izn', ''), 
@@ -964,6 +1230,13 @@ class DatabaseManager:
                 'agent_id': data.get('agent_id', ''),
                 'ur_money': data.get('ur_money', ''),
                 'calculation': data.get('calculation', ''),
+                'date_ins_otv': data.get('date_ins_otv', ''),
+                'fio_sto': data.get('fio_sto', ''),
+                'date_istch_rem': data.get('date_istch_rem', ''),
+                'date_exp_ins': data.get('date_exp_ins', ''),
+                'org_exp_ins': data.get('org_exp_ins', ''),
+                'coin_exp_ins': data.get('coin_exp_ins', ''),
+                'coin_exp_ins_izn': data.get('coin_exp_ins_izn', ''),
         }
         print(f"DEBUG: Количество полей в _prepare_client_data: {len(result)}")
         return result
@@ -1093,7 +1366,76 @@ class DatabaseManager:
         except Exception as e:
             print(f"Ошибка получения заявок на вывод: {e}")
             return []
+    def get_pret_balance(self, pret_id):
+        """Получить баланс сотрудника претензионного отдела"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute("""
+                        SELECT balance, total_earned FROM pret_finances 
+                        WHERE pret_id = %s
+                    """, (pret_id,))
+                    result = cursor.fetchone()
+                    if result:
+                        return dict(result)
+                    else:
+                        # Создаем запись с нулевым балансом
+                        cursor.execute("""
+                            INSERT INTO pret_finances (pret_id, balance, total_earned)
+                            VALUES (%s, 0, 0)
+                            RETURNING balance, total_earned
+                        """, (pret_id,))
+                        conn.commit()
+                        return {'balance': 0, 'total_earned': 0}
+        except Exception as e:
+            print(f"Ошибка получения баланса претензионного отдела: {e}")
+            return {'balance': 0, 'total_earned': 0}
 
+    def get_pret_monthly_earning(self, pret_id):
+        """Получить заработок сотрудника претензионного отдела за текущий месяц"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT COALESCE(SUM(amount), 0) as monthly_earning
+                        FROM pret_earnings_history 
+                        WHERE pret_id = %s 
+                        AND EXTRACT(MONTH FROM earned_at) = EXTRACT(MONTH FROM CURRENT_DATE)
+                        AND EXTRACT(YEAR FROM earned_at) = EXTRACT(YEAR FROM CURRENT_DATE)
+                    """, (pret_id,))
+                    result = cursor.fetchone()
+                    return float(result[0]) if result else 0.0
+        except Exception as e:
+            print(f"Ошибка получения месячного заработка претензионного отдела: {e}")
+            return 0.0
+
+    def add_pret_earning(self, pret_id, client_id, amount=1000.0):
+        """Начислить заработок сотруднику претензионного отдела (по умолчанию 1000 руб)"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Создаем или обновляем баланс
+                    cursor.execute("""
+                        INSERT INTO pret_finances (pret_id, balance, total_earned)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (pret_id) DO UPDATE
+                        SET balance = pret_finances.balance + %s,
+                            total_earned = pret_finances.total_earned + %s,
+                            last_updated = CURRENT_TIMESTAMP
+                    """, (pret_id, amount, amount, amount, amount))
+                    
+                    # Записываем в историю
+                    cursor.execute("""
+                        INSERT INTO pret_earnings_history (pret_id, client_id, amount)
+                        VALUES (%s, %s, %s)
+                    """, (pret_id, client_id, amount))
+                    
+                    conn.commit()
+                    print(f"Начислено {amount} руб. сотруднику претензионного отдела {pret_id} за клиента {client_id}")
+                    return True
+        except Exception as e:
+            print(f"Ошибка начисления заработка претензионному отделу: {e}")
+            return False
     def process_withdrawal(self, withdrawal_id, status, reviewed_by, agent_id, amount):
         """Обработать заявку на вывод"""
         try:
@@ -1618,10 +1960,10 @@ class DatabaseManager:
                     INSERT INTO admins (
                         user_id, fio, fio_k, seria_pasport, number_pasport, 
                         where_pasport, when_pasport, date_of_birth, city_birth,
-                        address, index_postal, admin_value, city_admin, number, created_at,
+                        address, index_postal, admin_value, city_admin, number, org, created_at,
                         invited_by_user_id, invited_by_type
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (user_id) DO UPDATE SET
                         fio = EXCLUDED.fio,
                         fio_k = EXCLUDED.fio_k,
@@ -1636,6 +1978,7 @@ class DatabaseManager:
                         admin_value = EXCLUDED.admin_value,
                         city_admin = EXCLUDED.city_admin,
                         number = EXCLUDED.number,
+                        org = EXCLUDED.org,
                         invited_by_user_id = EXCLUDED.invited_by_user_id,
                         invited_by_type = EXCLUDED.invited_by_type
                     '''
@@ -1655,6 +1998,7 @@ class DatabaseManager:
                         admin_data.get('admin_value'),
                         admin_data.get('city_admin'),
                         admin_data.get('number', ''),
+                        admin_data.get('org', '-'),
                         created_at,
                         admin_data.get('invited_by_user_id', None),
                         admin_data.get('invited_by_type', None)
@@ -1689,6 +2033,7 @@ class DatabaseManager:
                         admin_value = %s,
                         city_admin = %s,
                         number = %s,
+                        org = %s,
                         invited_by_user_id = %s,
                         invited_by_type = %s
                     WHERE user_id = %s
@@ -1708,6 +2053,7 @@ class DatabaseManager:
                         admin_data.get('admin_value'),
                         admin_data.get('city_admin'),
                         admin_data.get('number', ''),
+                        admin_data.get('org', '-'),
                         admin_data.get('invited_by_user_id', None),
                         admin_data.get('invited_by_type', None),
                         admin_data.get('user_id')  # WHERE условие
@@ -1735,7 +2081,7 @@ class DatabaseManager:
                     cursor.execute("""
                         SELECT id, user_id, fio, fio_k, seria_pasport, number_pasport, 
                             where_pasport, when_pasport, date_of_birth, city_birth,
-                            address, index_postal, admin_value, city_admin, number,
+                            address, index_postal, admin_value, city_admin, number, org,
                             created_at, is_active, invited_by_user_id, invited_by_type
                         FROM admins 
                         WHERE user_id = %s::text AND is_active = true
@@ -1757,7 +2103,7 @@ class DatabaseManager:
                     cursor.execute("""
                         SELECT id, user_id, fio, fio_k, seria_pasport, number_pasport, 
                             where_pasport, when_pasport, date_of_birth, city_birth,
-                            address, index_postal, admin_value, city_admin, number,
+                            address, index_postal, admin_value, city_admin, number, org,
                             created_at, is_active, invited_by_user_id, invited_by_type
                         FROM admins 
                         WHERE fio = %s::text AND is_active = true
@@ -1782,14 +2128,14 @@ class DatabaseManager:
                         query = """
                         SELECT a.user_id, a.fio, a.seria_pasport, a.number_pasport, 
                             a.where_pasport, a.when_pasport, a.admin_value, a.city_admin, 
-                            a.created_at, a.is_active, a.date_of_birth, a.number,
+                            a.created_at, a.is_active, a.date_of_birth, a.number, a.org,
                             COUNT(c.client_id) as client_count
                         FROM admins a
                         LEFT JOIN clients c ON a.user_id::text = c.user_id
-                        WHERE a.city_admin = %s AND a.is_active = true AND a.admin_value != 'Клиент'
+                        WHERE a.city_admin = %s AND a.is_active = true AND a.admin_value != 'Клиент' AND a.admin_value != 'Клиент_агент'
                         GROUP BY a.user_id, a.fio, a.seria_pasport, a.number_pasport, 
                                 a.where_pasport, a.when_pasport, a.admin_value, a.city_admin, 
-                                a.created_at, a.is_active, a.date_of_birth, a.number
+                                a.created_at, a.is_active, a.date_of_birth, a.number, a.org
                         ORDER BY a.created_at DESC
                         """
                         cursor.execute(query, (city_filter,))
@@ -1797,14 +2143,14 @@ class DatabaseManager:
                         query = """
                         SELECT a.user_id, a.fio, a.seria_pasport, a.number_pasport, 
                             a.where_pasport, a.when_pasport, a.admin_value, a.city_admin, 
-                            a.created_at, a.is_active, a.date_of_birth, a.number
+                            a.created_at, a.is_active, a.date_of_birth, a.number, a.org,
                             COUNT(c.client_id) as client_count
                         FROM admins a
                         LEFT JOIN clients c ON a.user_id::text = c.user_id
-                        WHERE a.is_active = true AND a.admin_value != 'Клиент'
+                        WHERE a.is_active = true AND a.admin_value != 'Клиент' AND a.admin_value != 'Клиент_агент'
                         GROUP BY a.user_id, a.fio, a.seria_pasport, a.number_pasport, 
                                 a.where_pasport, a.when_pasport, a.admin_value, a.city_admin, 
-                                a.created_at, a.is_active, a.date_of_birth, a.number
+                                a.created_at, a.is_active, a.date_of_birth, a.number, a.org
                         ORDER BY a.created_at DESC
                         """
                         cursor.execute(query)
@@ -1866,64 +2212,230 @@ class DatabaseManager:
             return False
     
     def export_clients_to_excel_by_city(self, file_path, city_filter):
-        """Экспорт клиентов по городу в Excel файл с данными администратора"""
+        """Экспорт клиентов по городу в Excel файл с форматированием"""
         try:
             import pandas as pd
+            import openpyxl
+            from openpyxl.utils.dataframe import dataframe_to_rows
+            from openpyxl.styles import Font, PatternFill, Alignment
+            from datetime import datetime, timedelta
+            
+            # Словарь соответствия: русское название -> название поля в БД
+            column_mapping = {
+                '№ Договора': 'client_id',
+                'Статус': 'status',
+                'Дата принятия решения': 'date_prin',
+                'Город': 'city',
+                'Клиент ФИО': 'fio',
+                'Дата ДТП': 'date_dtp',
+                'Марка, модель клиента': 'marks',
+                'Номер авто клиента': 'car_number',
+                'Страховая компания': 'insurance',
+                'Виновник ФИО Полностью': 'fio_culp',
+                'Марка, модель виновника': 'marks_culp',
+                'Номер авто виновника': 'number_auto_culp',
+                'Дата заявления в страховую': 'date_ins',
+                'Дата заявления в СТО': 'date_zayav_sto',
+                'Дата составления претензии': 'date_pret',
+                'Дата составления заявления омбуцмену': 'date_ombuc',
+                'Дата искового заявления': 'date_isk',
+                'Суд': 'sud',
+                'ID администратора': 'user_id',
+                'ФИО администратора': 'admin_fio',
+            }
             
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                    query = """
-                    SELECT c.client_id, c.fio, c.number, c.car_number, c.date_dtp, 
-                        c.accident, c.insurance, c.city, c.created_at, c.status,
-                        c.seria_pasport, c.number_pasport, c.address, 
-                        c.date_of_birth, c.user_id,
-                        a.fio as admin_fio
+                    # Получаем список доступных колонок в таблице clients
+                    cursor.execute("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'clients'
+                        ORDER BY ordinal_position
+                    """)
+                    available_columns = [row['column_name'] for row in cursor.fetchall()]
+                    
+                    print(f"Доступные поля в таблице: {available_columns}")
+                    
+                    # Создаем список полей для выборки (только те, что есть в БД)
+                    select_columns = []
+                    russian_headers = []
+                    
+                    for rus_name, db_name in column_mapping.items():
+                        if db_name == 'admin_fio':
+                            # Специальный случай для ФИО администратора
+                            select_columns.append('a.fio as admin_fio')
+                            russian_headers.append(rus_name)
+                        elif db_name in available_columns and db_name != 'date_prin':
+                            select_columns.append(f'c.{db_name}')
+                            russian_headers.append(rus_name)
+                        elif db_name != 'date_prin':
+                            print(f"Поле '{db_name}' ({rus_name}) не найдено в таблице")
+                    
+                    if not select_columns:
+                        print("Не найдено ни одного совпадающего поля!")
+                        return False
+                    
+                    # Выполняем запрос к базе данных с фильтром по городу
+                    query = f"""
+                    SELECT {', '.join(select_columns)}
                     FROM clients c
                     LEFT JOIN admins a ON c.user_id = a.user_id::text AND a.is_active = true
                     WHERE c.city = %s
                     ORDER BY c.created_at DESC
                     """
+                    
                     cursor.execute(query, (city_filter,))
+                    results = cursor.fetchall()
                     
-                    clients = cursor.fetchall()
-                    
-                    if not clients:
-                        print(f"Нет клиентов в городе {city_filter} для экспорта")
+                    if not results:
+                        print(f"Нет данных для экспорта в городе {city_filter}!")
                         return False
                     
                     # Преобразуем в DataFrame
-                    df = pd.DataFrame([dict(client) for client in clients])
+                    df = pd.DataFrame([dict(row) for row in results])
                     
-                    # Переименовываем колонки для читаемости
-                    column_mapping = {
-                        'client_id': 'ID клиента',
-                        'fio': 'ФИО клиента',
-                        'number': 'Телефон',
-                        'car_number': 'Номер авто',
-                        'date_dtp': 'Дата ДТП',
-                        'accident': 'Тип обращения',
-                        'insurance': 'Страховая',
-                        'city': 'Город',
-                        'created_at': 'Дата создания',
-                        'status': 'Статус',
-                        'seria_pasport': 'Серия паспорта',
-                        'number_pasport': 'Номер паспорта',
-                        'address': 'Адрес',
-                        'date_of_birth': 'Дата рождения',
-                        'user_id': 'ID администратора',
-                        'admin_fio': 'ФИО администратора'
-                    }
+                    # Функция для вычисления даты принятия решения
+                    def calculate_date_prin(row):
+                        status = row.get('status', '')
+                        date_ins = row.get('date_ins')
+                        date_pret = row.get('date_pret')
+                        
+                        # Если статус соответствует условиям и есть нужные даты
+                        if status == "Отправлен запрос в страховую" and date_ins:
+                            try:
+                                if isinstance(date_ins, str):
+                                    date_ins = datetime.strptime(date_ins, '%d.%m.%Y')
+                                return date_ins + timedelta(days=20)
+                            except:
+                                return None
+                        elif status == "Составлена претензия" and date_pret:
+                            try:
+                                if isinstance(date_pret, str):
+                                    date_pret = datetime.strptime(date_pret, '%d.%m.%Y')
+                                return date_pret + timedelta(days=30)
+                            except:
+                                return None
+                        return None
                     
-                    df = df.rename(columns=column_mapping)
+                    # Добавляем вычисленный столбец date_prin
+                    df['date_prin'] = df.apply(calculate_date_prin, axis=1)
                     
-                    # Экспортируем в Excel
-                    df.to_excel(file_path, index=False, engine='openpyxl')
+                    # Переименовываем колонки на русские названия
+                    df.columns = russian_headers + ['Дата принятия решения']
                     
-                    print(f"Экспорт {len(clients)} клиентов города {city_filter} завершен: {file_path}")
+                    # Переупорядочиваем колонки согласно column_mapping
+                    final_columns = []
+                    for rus_name in column_mapping.keys():
+                        if rus_name in df.columns:
+                            final_columns.append(rus_name)
+                    
+                    df = df[final_columns]
+                    
+                    print(f"Загружено {len(df)} записей с {len(df.columns)} полями для города {city_filter}")
+                    
+                    # Создаем Excel файл с форматированием
+                    wb = openpyxl.Workbook()
+                    ws = wb.active
+                    ws.title = f"Клиенты {city_filter}"
+                    
+                    # Добавляем данные в лист
+                    for r in dataframe_to_rows(df, index=False, header=True):
+                        formatted_row = []
+                        for cell in r:
+                            if isinstance(cell, (datetime, pd.Timestamp)) and pd.notna(cell):
+                                formatted_row.append(cell.strftime('%d.%m.%Y'))
+                            else:
+                                formatted_row.append(cell)
+                        ws.append(formatted_row)
+                    
+                    # Форматирование заголовков - заливка RGB (54;96;146)
+                    header_font = Font(bold=True, color="FFFFFF")
+                    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                    
+                    for col in range(1, len(final_columns) + 1):
+                        cell = ws.cell(row=1, column=col)
+                        cell.font = header_font
+                        cell.fill = header_fill
+                        cell.alignment = header_alignment
+                    
+                    # Функция для определения цвета статуса
+                    def get_status_color(status, date_prin):
+                        if not status or not date_prin:
+                            return None
+                        
+                        try:
+                            if isinstance(date_prin, str):
+                                date_prin = datetime.strptime(date_prin, '%d.%m.%Y')
+                            
+                            today = datetime.now().date()
+                            if isinstance(date_prin, datetime):
+                                date_prin = date_prin.date()
+                            
+                            days_until = (date_prin - today).days
+                            
+                            if 2 <= days_until <= 7:  # Зеленый - от 7 до 2 дней
+                                return "90EE90"  # Light green
+                            elif 0 <= days_until <= 2:  # Желтый - от 2 до 0 дней
+                                return "FFFF00"  # Yellow
+                            elif days_until < 0:  # Красный - просрочено
+                                return "FF6B6B"  # Light red
+                            
+                        except Exception as e:
+                            print(f"Ошибка при расчете цвета статуса: {e}")
+                        
+                        return None
+                    
+                    # Применяем цветовое форматирование к столбцу статуса
+                    status_col_index = final_columns.index('Статус') + 1
+                    date_prin_col_index = final_columns.index('Дата принятия решения') + 1
+                    
+                    for row in range(2, len(df) + 2):  # Начинаем с 2 строки (после заголовка)
+                        status_cell = ws.cell(row=row, column=status_col_index)
+                        date_prin_cell = ws.cell(row=row, column=date_prin_col_index)
+                        
+                        status_value = status_cell.value
+                        date_prin_value = date_prin_cell.value
+                        
+                        color = get_status_color(status_value, date_prin_value)
+                        if color:
+                            status_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+                    
+                    # Автоматическая ширина столбцов по самому длинному значению
+                    for column in ws.columns:
+                        max_length = 0
+                        column_letter = column[0].column_letter
+                        
+                        for cell in column:
+                            try:
+                                if cell.value:
+                                    cell_length = len(str(cell.value))
+                                    if cell_length > max_length:
+                                        max_length = cell_length
+                            except:
+                                pass
+                        
+                        adjusted_width = min(max_length + 10, 100)  # Максимальная ширина 100
+                        ws.column_dimensions[column_letter].width = adjusted_width
+                    
+                    # Замораживаем первую строку
+                    ws.freeze_panes = "A2"
+                    
+                    # Сохраняем файл
+                    wb.save(file_path)
+                    
+                    print(f"Экспорт завершен успешно!")
+                    print(f"Файл сохранен: {file_path}")
+                    print(f"Экспортировано записей: {len(df)}")
+                    print(f"Количество полей: {len(df.columns)}")
+                    
                     return True
                     
         except Exception as e:
-            print(f"Ошибка экспорта клиентов по городу: {e}")
+            print(f"Ошибка при экспорте: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 # Обновленные функции для интеграции с ботом
 def save_client_to_db_with_id(data, connection_params=None):
@@ -2370,11 +2882,4 @@ def get_agent_fio_by_id(agent_id):
         with conn.cursor() as cursor:
             cursor.execute("SELECT fio FROM admins WHERE user_id = %s", (agent_id,))
             result = cursor.fetchone()
-
             return result[0] if result else "Неизвестный агент"
-
-
-
-
-
-

@@ -3947,13 +3947,10 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
             # Кнопка "Ответ от страховой" - только если еще не заполнялась
             if contract_data.get('vibor', '') == '':
                 keyboard.add(types.InlineKeyboardButton("❓ Ответ от страховой", callback_data=f"client_answer_insurance_{client_id}"))
-        elif contract_data.get('accident', '') == "Нет ОСАГО" and contract_data.get('status', '') == "Оформлен договор":
-            keyboard.add(types.InlineKeyboardButton("👮 Заполнить запрос в ГИБДД", callback_data=f"NoOsago_yes_{contract_data['client_id']}"))
-        elif contract_data.get('accident', '') == "Подал заявление":
-            if contract_data.get('status', '') == "Оформлен договор" or contract_data.get('status', '') =="Подано заяление на выдачу документов из страховой":
-                keyboard.add(types.InlineKeyboardButton("📋 Заявление в страховую", callback_data=f"zayavlenie_ins_{client_id}"))
-
-        keyboard.add(types.InlineKeyboardButton("📤 Добавить выплату от страховой", callback_data="add_osago_payment"))
+        
+                
+        if contract_data.get('accident', '') != 'После ямы':
+            keyboard.add(types.InlineKeyboardButton("📤 Добавить выплату от страховой", callback_data="add_osago_payment"))
         keyboard.add(types.InlineKeyboardButton("📸 Загрузить фото ДТП", callback_data="download_foto"))
         keyboard.add(types.InlineKeyboardButton("📤 Загрузить документы", callback_data="download_docs"))
         keyboard.add(types.InlineKeyboardButton("📋 Просмотр данных", callback_data="view_db"))
@@ -4726,13 +4723,7 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
             reply_markup=keyboard
         )
         
-        # Формируем заявление в страховую
-        contract = get_client_from_db_by_client_id(client_id)
 
-        data = contract
-
-        if data and data['status'] == 'Оформлен договор':
-            zayavlenie_predstavitel_insurance(call, data)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("reject_doverennost_"))
     @prevent_double_click(timeout=3.0)
@@ -6528,19 +6519,29 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
         print(contract_data)
         # Кнопка "Заявление на доп. осмотр" - только если еще не заполнялась
         if contract_data.get('accident') == 'ДТП':
-            if contract_data.get('status', '') == "Оформлен договор" and contract_data.get('sobstvenik', '') != "С начала":
-                keyboard.add(types.InlineKeyboardButton("📋 Заявление в страховую", callback_data=f"dtp_continue_documents_{client_id}"))
+            if contract_data.get('status', '') == "Оформлен договор":
+                if contract_data.get('sobstvenik', '') == 'С начала':
+                    if contract_data.get('N_dov_not', '') != '':
+                        if contract_data.get('user_id', '') == '8572367590':
+                            keyboard.add(types.InlineKeyboardButton("📋 Заявление в страховую", callback_data=f"dtp_continue_documents2_{client_id}"))
+                        else:
+                            keyboard.add(types.InlineKeyboardButton("📋 Заявление в страховую", callback_data=f"dtp_continue_documents_{client_id}"))
+                else:
+                    if contract_data.get('user_id', '') == '8572367590':
+                        keyboard.add(types.InlineKeyboardButton("📋 Заявление в страховую", callback_data=f"dtp_continue_documents2_{client_id}"))
+                    else:
+                        keyboard.add(types.InlineKeyboardButton("📋 Заявление в страховую", callback_data=f"dtp_continue_documents_{client_id}"))
             else:
                 if contract_data.get('dop_osm') != 'Yes' and (contract_data.get('vibor', '') == ''):
                     keyboard.add(types.InlineKeyboardButton("📋 Заявление на доп. осмотр", callback_data=f"agent_dop_osm_{client_id}"))
                 # Кнопка "Ответ от страховой" - только если еще не заполнялась
                 if (contract_data.get('vibor', '') == ''):
-                    keyboard.add(types.InlineKeyboardButton("❓ Ответ от страховой", callback_data=f"agent_answer_insurance_{client_id}"))
+                    keyboard.add(types.InlineKeyboardButton("❓ Ответ от страховой", callback_data=f"agent_net_osago_continue_documents_{client_id}"))
         elif contract_data.get('accident', '') == "Нет ОСАГО" and contract_data.get('status', '') == "Оформлен договор":
             keyboard.add(types.InlineKeyboardButton("👮 Заполнить запрос в ГИБДД", callback_data=f"NoOsago_yes_{contract_data['client_id']}"))
         elif contract_data.get('accident', '') == "Подал заявление":
-            if contract_data.get('status', '') == "Оформлен договор" or contract_data.get('status', '') =="Подано заяление на выдачу документов из страховой":
-                keyboard.add(types.InlineKeyboardButton("📋 Заявление в страховую", callback_data=f"zayavlenie_ins_{client_id}"))
+            if contract_data.get('status', '') == "Оформлен договор":
+                keyboard.add(types.InlineKeyboardButton("📋 Заявление в страховую", callback_data=f"agent_podal_continue_documents_{client_id}"))
 
         keyboard.add(types.InlineKeyboardButton("✏️ Редактировать данные", callback_data=f"edit_contract_data_{client_id}"))
         keyboard.add(types.InlineKeyboardButton("📋 Просмотр данных", callback_data="view_db"))
@@ -7508,13 +7509,6 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
             
             create_fio_data_file(data)
  
-            replace_words_in_word(["{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", 
-                                "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Год }}","{{ NКлиента }}", "{{ ФИО }}",
-                                "{{ Страховая }}", "{{ винФИО }}"],
-                                [str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
-                                    str(data['year']),str(data['client_id']), str(data["fio"]), str(data["insurance"]), str(data["fio_culp"])],
-                                    "Шаблоны/1. ДТП/1. На ремонт/1. Обложка дела.docx",
-                                    "clients/"+str(data["client_id"])+"/Документы/"+"Обложка дела.docx")
             if data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Нет':
                 replace_words_in_word(
                     ["{{ Страховая }}", "{{ Представитель }}", "{{ Паспорт_серия_юрист }}", "{{ Паспорт_номер_юрист }}", "{{ ДР_юрист }}", 
@@ -7655,7 +7649,8 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
             try:
                 with open(f"Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Опись документов.docx", 'rb') as document_file:
                     keyboard = types.InlineKeyboardMarkup()
-                    keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(call.message.chat.id, data['client_id'])))    
+                    keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(call.message.chat.id, data['client_id'])))
+                    keyboard.add(types.InlineKeyboardButton("📋 Получить документы из страховой", callback_data=f"agent_request_act_payment_{data['client_id']}"))    
                     bot.send_document(call.message.chat.id, document_file, reply_markup = keyboard)   
             except FileNotFoundError:
                 bot.send_message(call.message.chat.id, f"Файл не найден")

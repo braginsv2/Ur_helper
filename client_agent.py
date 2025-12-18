@@ -8,11 +8,11 @@ from database import (
     get_admin_from_db_by_user_id,
     get_client_from_db_by_client_id
 )
-from config import ID_CHAT, ID_TOPIC_CLIENT, ID_TOPIC_EXP
+from config import ID_CHAT, ID_TOPIC_CLIENT, ID_TOPIC_EXP, TEST
 import os
 from PIL import Image
 from io import BytesIO
-from word_utils import create_fio_data_file, export_clients_db_to_excel, edit_files, replace_words_in_word, get_next_business_date
+from word_utils import create_fio_data_file,  replace_words_in_word, get_next_business_date
 import json
 import time
 from functools import wraps
@@ -39,7 +39,7 @@ insurance_companies = [
     ('АО СК "Чулпан"', "Chul")
 ]
 
-def setup_client_agent_handlers(bot, user_temp_data):
+def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
     """Регистрация обработчиков для работы агента с клиентом"""
     def create_back_keyboard(callback_data):
         """Создает клавиатуру с кнопкой Назад"""
@@ -415,7 +415,6 @@ def setup_client_agent_handlers(bot, user_temp_data):
             user_temp_data[agent_id]['contract_data']['accident'] = "Нет ОСАГО"
             context = f"🤖 Вы попали в ДТП с участием двух и более автомобилей.\nНаходитесь на стадии оформления в ГИБДД.\nДанная ситуация является не страховым случаем.\nКомпенсирует убыток Виновник ДТП.\nПримерная дата завершения дела {(datetime.now() + timedelta(days=90)).strftime('%d.%m.%Y')}"
 
-        save_step_state(agent_id, 'accident_type', user_temp_data[agent_id]['contract_data'])
         
         msg = bot.send_message(
             chat_id=user_temp_data[agent_id]['client_user_id'],
@@ -441,6 +440,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
     @prevent_double_click(timeout=3.0)
     def back_to_accident_choice(call):
         """Возврат к выбору типа обращения"""
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
         agent_id = call.from_user.id
         agent_data = get_admin_from_db_by_user_id(agent_id)
         
@@ -497,6 +497,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
     @prevent_double_click(timeout=3.0)
     def back_to_evacuator(call):
         """Возврат к вопросу об эвакуаторе"""
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
         agent_id = call.from_user.id
         
         keyboard = types.InlineKeyboardMarkup()
@@ -527,7 +528,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             user_temp_data[agent_id]['contract_data']['date_dtp'] = date_dtp
             
             # Продолжить к следующему шагу (время ДТП)
-            keyboard = create_back_keyboard("back_to_evacuator")
+            keyboard = create_back_keyboard("back_to_dtp_date_choice")
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -537,7 +538,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             bot.register_next_step_handler(call.message, process_dtp_time, agent_id, call.message.message_id)
             
         elif call.data == "dtp_date_other_agent":
-            keyboard = create_back_keyboard("back_to_evacuator")
+            keyboard = create_back_keyboard("back_to_dtp_date_choice")
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -742,58 +743,14 @@ def setup_client_agent_handlers(bot, user_temp_data):
         # СРАЗУ ПЕРЕХОДИМ К СБОРУ ДАННЫХ ОБ АВТОМОБИЛЕ (без показа итоговых данных)
         contract_data = user_temp_data[agent_id]['contract_data']
         
-        keyboard = create_back_keyboard("back_to_who_dtp")
+        keyboard = create_back_keyboard("back_to_marks")
         msg = bot.send_message(
             call.message.chat.id,
             "Введите марку и модель авто клиента",
             reply_markup=keyboard
         )
         bot.register_next_step_handler(msg, marks, contract_data, msg.message_id)
-    
-    def show_contract_summary_to_agent(bot, chat_id, agent_id, user_temp_data):
-        """Показ итоговых данных агенту"""
-        contract_data = user_temp_data[agent_id]['contract_data']
-        
-        summary = "📋 <b>Данные договора:</b>\n\n"
-        summary += f"👤 ФИО: {contract_data.get('fio', '')}\n"
-        summary += f"📅 Дата рождения: {contract_data.get('date_of_birth', '')}\n"
-        summary += f"📍 Город: {contract_data.get('city', '')}\n"
-        summary += f"📄 Паспорт: {contract_data.get('seria_pasport', '')} {contract_data.get('number_pasport', '')}\n"
-        summary += f"📍 Выдан: {contract_data.get('where_pasport', '')}\n"
-        summary += f"📅 Дата выдачи: {contract_data.get('when_pasport', '')}\n"
-        summary += f"📮 Индекс: {contract_data.get('index_postal', '')}\n"
-        summary += f"🏠 Адрес: {contract_data.get('address', '')}\n"
-        summary += f"🚗 Дата ДТП: {contract_data.get('date_dtp', '')}\n"
-        summary += f"⏰ Время ДТП: {contract_data.get('time_dtp', '')}\n"
-        summary += f"📍 Адрес ДТП: {contract_data.get('address_dtp', '')}\n"
-        summary += f"📍 Фиксация ДТП: {contract_data.get('who_dtp', '')}\n"
-
-        keyboard = types.InlineKeyboardMarkup()
-        btn_send = types.InlineKeyboardButton("📤 Отправить на подтверждение", callback_data="send_contract_to_client")
-        btn_cancel = types.InlineKeyboardButton("❌ Отмена", callback_data="callback_start")
-        keyboard.add(btn_send)
-        keyboard.add(btn_cancel)
-        
-        bot.send_message(chat_id, summary, parse_mode='HTML', reply_markup=keyboard)
-    
-    
-    @bot.callback_query_handler(func=lambda call: call.data == "send_contract_to_client")
-    @prevent_double_click(timeout=3.0)
-    def send_contract_to_client(call):
-        """Переход к сбору данных о ДТП перед отправкой на подтверждение"""
-        agent_id = call.from_user.id
-        contract_data = user_temp_data[agent_id]['contract_data']
-        
-        # Переходим к сбору данных о ДТП
-        msg = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Введите марку и модель авто клиента",
-            reply_markup=None
-        )
-        user_message_id = msg.message_id
-        bot.register_next_step_handler(msg, marks, contract_data, msg.message_id)
-    
+       
     @bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_contract_"))
     @prevent_double_click(timeout=3.0)
     def confirm_contract_by_client(call):
@@ -813,7 +770,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         for field in fields_to_remove:
             contract_data.pop(field, None)
-        print(contract_data)
+        
         # СОХРАНЯЕМ В БД И ПОЛУЧАЕМ client_id
         contract_data['status'] = 'Оформлен договор'
         try:
@@ -822,22 +779,47 @@ def setup_client_agent_handlers(bot, user_temp_data):
             contract_data.update(updated_data)
             contract_data['client_id'] = client_contract_id
             user_temp_data[agent_id]['contract_data'] = contract_data
+            print(contract_data)
             print(f"Договор сохранен с client_id: {client_contract_id}")
             
             # ФОРМИРУЕМ ОБЛОЖКУ ДЕЛА
             create_fio_data_file(contract_data)
-            
-            replace_words_in_word(
-                ["{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", 
-                "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Год }}", "{{ NКлиента }}", "{{ ФИО }}",
-                "{{ Страховая }}", "{{ винФИО }}"],
-                [str(contract_data["date_dtp"]), str(contract_data["time_dtp"]), str(contract_data["address_dtp"]), 
-                str(contract_data["marks"]), str(contract_data["car_number"]),
-                str(contract_data['year']), str(client_contract_id), str(contract_data["fio"]), 
-                str(contract_data["insurance"]), str(contract_data["fio_culp"])],
-                "Шаблоны/1. ДТП/1. На ремонт/1. Обложка дела.docx",
-                f"clients/{client_contract_id}/Документы/Обложка дела.docx"
-            )
+            if contract_data['accident'] == 'ДТП' or contract_data['accident'] == 'Подал заявление':
+                replace_words_in_word(
+                    ["{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", 
+                    "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Год }}", "{{ NКлиента }}", "{{ ФИО }}",
+                    "{{ Страховая }}", "{{ винФИО }}"],
+                    [str(contract_data["date_dtp"]), str(contract_data["time_dtp"]), str(contract_data["address_dtp"]), 
+                    str(contract_data["marks"]), str(contract_data["car_number"]),
+                    str(contract_data['year']), str(client_contract_id), str(contract_data["fio"]), 
+                    str(contract_data["insurance"]), str(contract_data["fio_culp"])],
+                    "Шаблоны/1. ДТП/1. На ремонт/1. Обложка дела.docx",
+                    f"clients/{client_contract_id}/Документы/Обложка дела.docx"
+                )
+            elif contract_data['accident'] == 'Нет ОСАГО':
+                replace_words_in_word(
+                    ["{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", 
+                    "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Год }}", "{{ NКлиента }}", "{{ ФИО }}",
+                    "{{ винФИО }}"],
+                    [str(contract_data["date_dtp"]), str(contract_data["time_dtp"]), str(contract_data["address_dtp"]), 
+                    str(contract_data["marks"]), str(contract_data["car_number"]),
+                    str(contract_data['year']), str(client_contract_id), str(contract_data["fio"]), 
+                    str(contract_data["fio_culp"])],
+                    "Шаблоны/3. Деликт без ОСАГО/Деликт (без ОСАГО) 1. Обложка дела.docx",
+                    f"clients/{client_contract_id}/Документы/Обложка дела.docx"
+                )
+            else:
+                replace_words_in_word(
+                    ["{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", 
+                    "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Год }}", "{{ NКлиента }}", "{{ ФИО }}",
+                    "{{ Телефон }}", "{{ Город }}"],
+                    [str(contract_data["date_dtp"]), str(contract_data["time_dtp"]), str(contract_data["address_dtp"]), 
+                    str(contract_data["marks"]), str(contract_data["car_number"]),
+                    str(contract_data['year']), str(client_contract_id), str(contract_data["fio"]), 
+                    str(contract_data["number"]), str(contract_data["city"])],
+                    "Шаблоны/2. Яма/Яма 1. Обложка дела.docx",
+                    f"clients/{client_contract_id}/Документы/Обложка дела.docx"
+                )
             
             # ФОРМИРУЕМ ЮР ДОГОВОР
             replace_words_in_word(
@@ -854,16 +836,17 @@ def setup_client_agent_handlers(bot, user_temp_data):
                 str(contract_data["time_dtp"]), str(contract_data["address_dtp"]), 
                 str(contract_data['fio_k'])],
                 "Шаблоны/1. ДТП/1. На ремонт/2. Юр договор.docx",
-                f"clients/{client_contract_id}/Документы/2. Юр договор.docx"
+                f"clients/{client_contract_id}/Документы/Юр договор.docx"
             )
-            try:
-                bot.send_message(
-                    chat_id=ID_CHAT,
-                    message_thread_id=ID_TOPIC_CLIENT,
-                    text=f"Клиент {contract_data['client_id']} {contract_data['fio']} добавлен"
-                )
-            except Exception as e:
-                print(f"Ошибка при отправке сообщения в тему: {e}")
+            if TEST == 'No':
+                try:
+                    bot.send_message(
+                        chat_id=ID_CHAT,
+                        message_thread_id=ID_TOPIC_CLIENT,
+                        text=f"Клиент {contract_data['client_id']} {contract_data['fio']} добавлен"
+                    )
+                except Exception as e:
+                    print(f"Ошибка при отправке сообщения в тему: {e}")
             # Копируем паспортные данные
             import shutil
             import os
@@ -921,7 +904,10 @@ def setup_client_agent_handlers(bot, user_temp_data):
             traceback.print_exc()
             bot.send_message(agent_id, "❌ Ошибка сохранения договора. Попробуйте снова.")
             return
-        
+        try:
+            bot.delete_message(call.from_user.id, user_temp_data[agent_id]['contract_data']['message_id'])
+        except:
+            pass
         # Уведомляем агента
         msg = bot.send_message(
             chat_id=agent_id,
@@ -958,8 +944,16 @@ def setup_client_agent_handlers(bot, user_temp_data):
         """Подтверждение этапа доверенности"""
         if "not_dov_yes_" in call.data:
             agent_id = int(call.data.replace("not_dov_yes_", ""))
-            user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'С начала'
-            contract_data = user_temp_data[agent_id]['contract_data']
+            print(user_temp_data)
+            print(call.data)
+            print(call.from_user.id)
+            try:
+                user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'С начала'
+                contract_data = user_temp_data[agent_id]['contract_data']
+            except Exception as e:
+                print(f"Ошибка: {e}")
+                import traceback
+                traceback.print_exc()
             context = '✅ Клиент подготовит нотариальную доверенность с начала'
         elif "not_dov_no_" in call.data:
             agent_id = int(call.data.replace("not_dov_no_", ""))
@@ -971,6 +965,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'После ответа от страховой'
             contract_data = user_temp_data[agent_id]['contract_data']
             context = '✅ Клиент подготовит нотариальную доверенность после получения ответа от страховой'
+
         fields_to_remove = [
             'pts_timer', 'dkp_timer', 'protocol_timer', 'dtp_timer', 'dov_timer', 'dtp_cabinet_timer',
             'pts_photos', 'dkp_photos', 'protocol_photos', 'dtp_photos', 'dtp_photos_cabinet', 'doverennost_photos',
@@ -980,13 +975,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         for field in fields_to_remove:
             contract_data.pop(field, None)
-        try:
-            from database import save_client_to_db_with_id
-            updated_client_id, updated_data = save_client_to_db_with_id(contract_data)
-            contract_data.update(updated_data)
-            print(contract_data)
-        except Exception as e:
-            print(f"⚠️ Ошибка обновления: {e}")
+
         client_id = call.from_user.id
         try:
             bot.delete_message(call.from_user.id, user_temp_data[agent_id]['contract_data']['message_id2'])
@@ -1343,29 +1332,52 @@ def setup_client_agent_handlers(bot, user_temp_data):
         else:
             user_temp_data[agent_id]['contract_data'] = contract_data
         
-        bot.edit_message_text(
+        msg = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text="✅ Данные обновлены и отправлены клиенту на подтверждение!"
         )
-        
+        user_temp_data[agent_id]['contract_data']['message_id'] = msg.message_id
         # Отправляем клиенту обновленные данные на подтверждение
         if client_user_id:
             try:
-                summary = "📋 <b>Агент обновил данные. Проверьте их:</b>\n\n"
-                summary += f"👤 ФИО: {contract_data.get('fio', '')}\n"
-                summary += f"📱 Номер телефона: {contract_data.get('number', '')}\n"
-                summary += f"📅 Дата рождения: {contract_data.get('date_of_birth', '')}\n"
-                summary += f"🏙 Место рождения: {contract_data.get('city_birth', '')}\n"
-                summary += f"📄 Паспорт: {contract_data.get('seria_pasport', '')} {contract_data.get('number_pasport', '')}\n"
-                summary += f"📍 Выдан: {contract_data.get('where_pasport', '')}\n"
-                summary += f"📅 Дата выдачи: {contract_data.get('when_pasport', '')}\n"
-                summary += f"📮 Индекс: {contract_data.get('index_postal', '')}\n"
-                summary += f"🏠 Адрес: {contract_data.get('address', '')}\n"
-                summary += f"🚗 Дата ДТП: {contract_data.get('date_dtp', '')}\n"
-                summary += f"⏰ Время ДТП: {contract_data.get('time_dtp', '')}\n"
-                summary += f"📍 Адрес ДТП: {contract_data.get('address_dtp', '')}\n"
-                summary += f"📍 Фиксация ДТП: {contract_data.get('who_dtp', '')}\n"
+                text += "<b>Персональные данные:</b>\n"
+                text += f"👤 ФИО: {contract_data.get('fio', 'не указано')}\n"
+                text += f"📱 Номер телефона: {contract_data.get('number', 'не указан')}\n"
+                text += f"📅 Дата рождения: {contract_data.get('date_of_birth', 'не указана')}\n"
+                text += f"🏙 Место рождения: {contract_data.get('city_birth', 'не указано')}\n"
+                text += f"📄 Серия паспорта: {contract_data.get('seria_pasport', 'не указана')}\n"
+                text += f"📄 Номер паспорта: {contract_data.get('number_pasport', 'не указан')}\n"
+                text += f"📍 Кем выдан: {contract_data.get('where_pasport', 'не указано')}\n"
+                text += f"📅 Дата выдачи: {contract_data.get('when_pasport', 'не указана')}\n"
+                text += f"📮 Индекс: {contract_data.get('index_postal', 'не указан')}\n"
+                text += f"🏠 Адрес: {contract_data.get('address', 'не указан')}\n\n"
+                
+                # Данные о ДТП
+                text += "<b>Данные о ДТП:</b>\n"
+                text += f"🚗 Дата ДТП: {contract_data.get('date_dtp', 'не указана')}\n"
+                text += f"⏰ Время ДТП: {contract_data.get('time_dtp', 'не указано')}\n"
+                text += f"📍 Адрес ДТП: {contract_data.get('address_dtp', 'не указан')}\n"
+                text += f"🚗 Фиксация ДТП: {contract_data.get('who_dtp', 'не указан')}\n\n"
+                
+                # Автомобиль клиента
+                text += "<b>Автомобиль клиента:</b>\n"
+                text += f"🚙 Марка/модель: {contract_data.get('marks', 'не указано')}\n"
+                text += f"🔢 Номер авто: {contract_data.get('car_number', 'не указан')}\n"
+                text += f"📅 Год выпуска: {contract_data.get('year_auto', 'не указан')}\n\n"
+                
+                # Страховая компания
+                text += "<b>Страховая компания:</b>\n"
+                text += f"🏢 Название: {contract_data.get('insurance', 'не указано')}\n"
+                text += f"📋 Серия полиса: {contract_data.get('seria_insurance', 'не указана')}\n"
+                text += f"📋 Номер полиса: {contract_data.get('number_insurance', 'не указан')}\n"
+                text += f"📅 Дата полиса: {contract_data.get('date_insurance', 'не указана')}\n\n"
+                
+                # Виновник ДТП
+                text += "<b>Виновник ДТП:</b>\n"
+                text += f"👤 ФИО виновника: {contract_data.get('fio_culp', 'не указано')}\n"
+                text += f"🚙 Марка/модель: {contract_data.get('marks_culp', 'не указано')}\n"
+                text += f"🔢 Номер авто: {contract_data.get('number_auto_culp', 'не указан')}\n\n"
                 
                 keyboard = types.InlineKeyboardMarkup()
                 btn_confirm = types.InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_contract_{agent_id}")
@@ -1373,7 +1385,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
                 keyboard.add(btn_confirm)
                 keyboard.add(btn_decline)
                 
-                bot.send_message(client_user_id, summary, parse_mode='HTML', reply_markup=keyboard)
+                bot.send_message(client_user_id, text, parse_mode='HTML', reply_markup=keyboard)
                 
             except Exception as e:
                 print(f"Ошибка отправки клиенту: {e}")
@@ -1418,7 +1430,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         """Отправка юридического договора клиенту"""
         
         client_contract_id = contract_data.get('client_id')
-        document_path = f"clients/{client_contract_id}/Документы/2. Юр договор.docx"
+        document_path = f"clients/{client_contract_id}/Документы/Юр договор.docx"
         
         contract_text = """
 📄 <b>Договор оказания юридических услуг</b>
@@ -1486,8 +1498,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         contract_data = user_temp_data.get(agent_id, {}).get('contract_data', {})
         accident_type = user_temp_data[agent_id]['contract_data']['accident']
-        print(accident_type)
-        print(11)
+
         # Обновляем admin_value клиента с "Клиент_агент" на "Клиент"
         try:
             with db.get_connection() as conn:
@@ -1521,77 +1532,74 @@ def setup_client_agent_handlers(bot, user_temp_data):
         except:
             pass
         
-        
-        print(13)
         # Проверяем тип обращения
         if accident_type == "ДТП":
-            print(14)
+
             # Уведомляем агента о составлении заявления
             cleanup_messages(bot, agent_id, msg.message_id, count=5)
-            keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton("Продолжить", callback_data=f"dtp_continue_documents_{contract_data['client_id']}"))
-            keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+
             msg = bot.send_message(
                 agent_id,
-                "✅ Клиент подписал договор!\nДоговор успешно сформирован.\n\nНапомните Клиенту:\n1. Подготовить нотариальную доверенность.\n\n2. Оплатить юридические услуги в срок не позднее 10 дней с момента получения ответа от страховой компании на заявление.\n\n3. Прислать квитанции или иные подтверждающие документы после получения страхового возмещения.\n\nНа этом этап работы с клиентом завершён.\n\nГотовы продолжить заполнение заявления в страховую компанию?",
-                reply_markup = keyboard
+                "✅ Клиент подписал договор!\nДоговор успешно сформирован.\n\nНапомните Клиенту:\n1. Подготовить нотариальную доверенность.\n\n2. Оплатить юридические услуги в срок не позднее 10 дней с момента получения ответа от страховой компании на заявление.\n\n3. Прислать квитанции или иные подтверждающие документы после получения страхового возмещения.\n\nНа этом этап работы с клиентом завершён.\n\n📸 Отправьте фото <b>лицевой стороны</b> водительского удостоверения",
+                parse_mode='HTML',
+                reply_markup = None
             )
+            
+            bot.register_next_step_handler(msg, process_driver_license_front_agent, agent_id, contract_data, msg.message_id)
             bot.answer_callback_query(call.id, "Договор подписан!")
 
         
         elif accident_type == "После ямы":
-            #cleanup_messages(bot, agent_id, msg.message_id, count=5)
-            
-            bot.send_message(
+            cleanup_messages(bot, agent_id, msg.message_id, count=5)
+            msg = bot.send_message(
                 agent_id,
-                "✅ Клиент подписал договор!\nДоговор успешно сформирован.\n\n"
-                "Тип обращения: После ямы\n"
+                "✅ Клиент подписал договор!\nДоговор успешно сформирован.\n\nНапомните Клиенту:\n1. Подготовить нотариальную доверенность.\n\n2. Оплатить юридические услуги\n\nНа этом этап работы с клиентом завершён.\n\n📸 Отправьте фото <b>лицевой стороны</b> водительского удостоверения",
+                parse_mode='HTML',
+                reply_markup = None
             )
             
-            # Очищаем данные
-            if agent_id in user_temp_data:
-                user_temp_data[agent_id].pop('contract_data', None)
-                user_temp_data[agent_id].pop('client_user_id', None)
-            from main_menu import show_main_menu_by_user_id
-            # Возвращаем агента в главное меню
-            show_main_menu_by_user_id(bot, agent_id)
-            
+            bot.register_next_step_handler(msg, process_driver_license_front_agent, agent_id, contract_data, msg.message_id)
             bot.answer_callback_query(call.id, "Договор подписан!")
+            
+
         
         elif accident_type =="Подал заявление":
-            #cleanup_messages(bot, agent_id, msg.message_id, count=5)
-            keyboard = types.InlineKeyboardMarkup()
-            btn_yes = types.InlineKeyboardButton("💰 На выплату", callback_data=f"podal_viplata_{contract_data['client_id']}")
-            btn_no = types.InlineKeyboardButton("🛠️ На ремонт", callback_data=f"podal_rem_{contract_data['client_id']}")
-            keyboard.add(btn_yes, btn_no)
-            bot.send_message(
-                chat_id=call.message.chat.id,
-                text = f"✅ Договор успешно оформлен!\n\n"
-                       f"Тип обращения: Подал заявление\nБыло подано заявление на выплату или на ремонт?",
-                reply_markup = keyboard
+            cleanup_messages(bot, agent_id, msg.message_id, count=5)
+
+            msg = bot.send_message(
+                agent_id,
+                "✅ Клиент подписал договор!\nДоговор успешно сформирован.\n\nНапомните Клиенту:\n1. Подготовить нотариальную доверенность.\n\n2. Оплатить юридические услуги в срок не позднее 10 дней с момента получения ответа от страховой компании на заявление.\n\n3. Прислать квитанции или иные подтверждающие документы после получения страхового возмещения.\n\nНа этом этап работы с клиентом завершён.\n\n📸 Отправьте фото <b>лицевой стороны</b> водительского удостоверения",
+                parse_mode='HTML',
+                reply_markup = None
             )
             
+            bot.register_next_step_handler(msg, process_driver_license_front_agent, agent_id, contract_data, msg.message_id)
             bot.answer_callback_query(call.id, "Договор подписан!")
-        elif accident_type =="Нет ОСАГО":
-            #cleanup_messages(bot, agent_id, msg.message_id, count=5)
-            keyboard = types.InlineKeyboardMarkup()
-            btn_yes = types.InlineKeyboardButton("✅ Да", callback_data=f"NoOsago_yes_{contract_data['client_id']}")
-            btn_no = types.InlineKeyboardButton("❌ Заполнить позже", callback_data=f"NoOsago_no_{contract_data['client_id']}")
-            keyboard.add(btn_yes, btn_no)
-            bot.send_message(
-                chat_id=call.message.chat.id,
-                text = f"✅ Договор успешно оформлен!\n\n"
-                       f"Тип обращения: Нет ОСАГО у виновника ДТП\nЗаполнить заявление в ГИБДД?",
-                reply_markup = keyboard
+
+        elif accident_type == "Нет ОСАГО":
+            cleanup_messages(bot, agent_id, msg.message_id, count=5)
+
+            msg = bot.send_message(
+                agent_id,
+                "✅ Клиент подписал договор!\nДоговор успешно сформирован.\n\nНапомните Клиенту:\n1. Подготовить нотариальную доверенность.\n\n2. Оплатить юридические услуги\n\nНа этом этап работы с клиентом завершён.\n\n📸 Отправьте фото <b>лицевой стороны</b> водительского удостоверения",
+                parse_mode='HTML',
+                reply_markup = None
             )
-        from main_menu import show_main_menu_by_user_id
-        show_main_menu_by_user_id(bot, client_id)
+            
+            bot.register_next_step_handler(msg, process_driver_license_front_agent, agent_id, contract_data, msg.message_id)
+            bot.answer_callback_query(call.id, "Договор подписан!")
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith("dtp_continue_documents_"))
     @prevent_double_click(timeout=3.0)
     def dtp_continue_documents(call):
         """Продолжение загрузки документов после подписания договора"""
         agent_id = call.from_user.id
         client_id = call.data.replace("dtp_continue_documents_", "")
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            bot.delete_message(call.message.chat.id, user_temp_data[agent_id]['message_id'])
+        except:
+            pass
         
         contract = get_client_from_db_by_client_id(client_id)
         if not contract:
@@ -1619,14 +1627,22 @@ def setup_client_agent_handlers(bot, user_temp_data):
             user_temp_data[agent_id] = {}
         user_temp_data[agent_id]['contract_data'] = data
         
-        # Запрашиваем фото лицевой стороны ВУ
-        msg = bot.edit_message_text(
+
+        try:
+            with open(f"clients/{data['client_id']}/Документы/{data.get('docs', 'СТС')}.pdf", 'rb') as document_file:
+                msg = bot.send_document(call.message.chat.id, document_file)   
+                user_temp_data[agent_id]['message_id'] = msg.message_id
+        except FileNotFoundError:
+            bot.send_message(call.message.chat.id, f"Файл не найден")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("📄 Вернуться к договору", callback_data=get_contract_callback(call.from_user.id, client_id))) 
+        msg = bot.send_message(
             chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="📸 Отправьте фото <b>лицевой стороны</b> водительского удостоверения:",
-            parse_mode='HTML'
+            text=f"Введите серию документа {data.get('docs', 'СТС')}",
+            reply_markup = keyboard
         )
-        bot.register_next_step_handler(msg, process_driver_license_front_agent, agent_id, data, msg.message_id)
+        bot.register_next_step_handler(msg, seria_docs, data, msg.message_id)
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith("dtp_next_zayavlenie_"))
     @prevent_double_click(timeout=3.0)
     def dtp_next_zayavlenie(call):
@@ -1655,37 +1671,82 @@ def setup_client_agent_handlers(bot, user_temp_data):
     @bot.callback_query_handler(func=lambda call: call.data in ["STS", "PTS"])
     @prevent_double_click(timeout=3.0)
     def callback_docs(call):
-        user_id = call.from_user.id
+        agent_id = call.from_user.id
         
-        data = user_temp_data[user_id]['contract_data']
-        user_message_id = [] 
-          
+        data = user_temp_data[agent_id]['contract_data']
+        
         if call.data == "STS":
             data.update({"docs": "СТС"})
             data['dkp'] = '-'
-            message = bot.edit_message_text(
+            keyboard = create_back_keyboard("back_to_doc_choice")
+            msg = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                text="Введите серию документа СТС",
-                reply_markup=None
-                )
-            user_message_id = message.message_id
-            bot.register_next_step_handler(message, seria_docs, data, user_message_id)
+                text="📸 Отправьте фото <b>лицевой стороны</b> СТС",
+                parse_mode='HTML',
+                reply_markup=keyboard 
+            )
+
+            bot.register_next_step_handler(msg, process_sts_front_agent, agent_id, data, msg.message_id)
 
         elif call.data == "PTS":
             data['docs'] = "ПТС"
-            user_temp_data[user_id]['contract_data'] = data
+            user_temp_data[agent_id]['contract_data'] = data
             keyboard = types.InlineKeyboardMarkup()
             btn1 = types.InlineKeyboardButton("Управляю по ДКП", callback_data="DKP")
             btn2 = types.InlineKeyboardButton("Продолжить", callback_data="DKP_next")
+            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_doc_choice")  # ✅ Добавлена кнопка
             keyboard.add(btn1)
             keyboard.add(btn2)
+            keyboard.add(btn_back)  # ✅ Добавлена кнопка
             message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="Выберите из следующих вариантов",
                 reply_markup=keyboard
             )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_doc_choice")
+    @prevent_double_click(timeout=3.0)
+    def back_to_doc_choice(call):
+        """Возврат к выбору документа ТС"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        keyboard = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton("Свидетельство о регистрации ТС", callback_data="STS")
+        btn2 = types.InlineKeyboardButton("Паспорт ТС", callback_data="PTS")
+        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_driver_license_back")
+        keyboard.add(btn1)
+        keyboard.add(btn2)
+        keyboard.add(btn_back)
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="✅ Водительское удостоверение успешно сохранено!\nВыберите документ о регистрации ТС:",
+            reply_markup=keyboard
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_driver_license_back")
+    @prevent_double_click(timeout=3.0)
+    def back_to_driver_license_back(call):
+        """Возврат к загрузке обратной стороны ВУ"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        contract_data = user_temp_data[agent_id]['contract_data']
+        
+        keyboard = create_back_keyboard("back_to_driver_license_front")
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="✅ Фотография лицевой стороны принята.\n\n📸 Теперь отправьте фотографию обратной стороны водительского удостоверения.",
+            parse_mode='HTML',
+            reply_markup=keyboard
+        )
+        bot.register_next_step_handler(msg, process_driver_license_back_agent, agent_id, contract_data, msg.message_id)
+
     @bot.callback_query_handler(func=lambda call: call.data in ["DKP", "DKP_next"])
     @prevent_double_click(timeout=3.0)
     def callback_agent_dkp(call):
@@ -1693,19 +1754,33 @@ def setup_client_agent_handlers(bot, user_temp_data):
         agent_id = call.from_user.id
         data = user_temp_data[agent_id]['contract_data']
 
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+
         if call.data == "DKP":
             data['dkp'] = 'Договор ДКП'
         else:
             data['dkp'] = '-'
-        user_temp_data[agent_id]['contract_data'] = data
 
-        msg = bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text="Введите серию документа ПТС",
-                reply_markup=None
-            )
-        bot.register_next_step_handler(msg, seria_docs, data, msg.message_id)
+
+        if agent_id not in user_temp_data:
+            user_temp_data[agent_id] = {}
+        user_temp_data[agent_id]['pts_photos'] = []
+        user_temp_data[agent_id]['contract_data'] = data
+        
+        keyboard = types.InlineKeyboardMarkup()
+        btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_pts_upload_agent_{agent_id}")
+        keyboard.add(btn_finish)
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_doc_choice"))
+        bot.send_message(
+            call.message.chat.id,
+            "📸 Отправьте фото страниц ПТС\n\n"
+            "Можно отправлять по одной фотографии или несколько сразу.\n"
+            "Когда загрузите все страницы, нажмите кнопку ниже:",
+            reply_markup=keyboard
+        )
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('ins_page_'))
     @prevent_double_click(timeout=3.0)
@@ -1750,7 +1825,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         if call.data in insurance_mapping:
             data.update({"insurance": insurance_mapping[call.data]})
-            keyboard = create_back_keyboard("back_to_year_auto_from_insurance")
+            keyboard = create_back_keyboard("back_to_seria_insurance")
             message = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -1782,11 +1857,10 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         contract_data.update({"marks": message.text})
         user_temp_data[message.from_user.id]['contract_data'] = contract_data
-        save_step_state(message.from_user.id, 'marks', contract_data)
         
         keyboard = types.InlineKeyboardMarkup()
         btn_finish = types.InlineKeyboardButton("🆎 Нестандартный формат гос. номера", callback_data=f"non_standart_number_car_agent")
-        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_marks")
+        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_number_auto")
         keyboard.add(btn_finish)
         keyboard.add(btn_back)
         
@@ -2012,7 +2086,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
         contract_data = user_temp_data[call.from_user.id]['contract_data']
         
-        keyboard = create_back_keyboard("back_to_marks")
+        keyboard = create_back_keyboard("back_to_car_number")
         msg = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -2140,6 +2214,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             reply_markup=keyboard
         )
         bot.register_next_step_handler(msg, year_auto, data, msg.message_id)
+
     def process_driver_license_front_agent(message, agent_id, contract_data, user_message_id):
         """Обработка фото лицевой стороны ВУ"""
         try:
@@ -2148,10 +2223,12 @@ def setup_client_agent_handlers(bot, user_temp_data):
         except:
             pass
         if not message.photo:
+
             msg = bot.send_message(
                 message.chat.id,
                 "❌ Пожалуйста, отправьте фотографию!\n\n📸 Отправьте фото <b>лицевой стороны</b> водительского удостоверения:",
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup=None 
             )
             bot.register_next_step_handler(msg, process_driver_license_front_agent, agent_id, contract_data, msg.message_id)
             return
@@ -2167,12 +2244,13 @@ def setup_client_agent_handlers(bot, user_temp_data):
             
             user_temp_data[agent_id]['driver_license_front'] = downloaded_file
             user_temp_data[agent_id]['contract_data'] = contract_data
-            
+            keyboard = create_back_keyboard("back_to_driver_license_front")
             # Запрашиваем обратную сторону
             msg = bot.send_message(
                 message.chat.id,
                 "✅ Фотография лицевой стороны принята.\n\n📸 Теперь отправьте фотографию обратной стороны водительского удостоверения.",
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup = keyboard
             )
             bot.register_next_step_handler(msg, process_driver_license_back_agent, agent_id, contract_data, msg.message_id)
             
@@ -2186,6 +2264,99 @@ def setup_client_agent_handlers(bot, user_temp_data):
             bot.register_next_step_handler(msg, process_driver_license_front_agent, agent_id, contract_data, msg.message_id)
 
 
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('agent_request_act_payment_'))
+    @prevent_double_click(timeout=3.0)
+    def agentrequest_act_payment_callback(call):
+        user_id = call.from_user.id
+        client_id = int(call.data.split('_')[-1])
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        contract = get_client_from_db_by_client_id(str(client_id))
+        if not contract:
+            bot.answer_callback_query(call.id, "❌ Договор не найден", show_alert=True)
+            return
+        
+        try:
+            data = json.loads(contract.get('data_json', '{}'))
+        except:
+            data = contract
+        
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        # Выбираем нужный шаблон
+        if data.get("N_dov_not", '') != '':
+            template_path = "Шаблоны/1. ДТП/1. На ремонт/5. Запрос в страховую о выдаче акта и расчета/5. Запрос в страховую о выдаче акта и расчёта представитель.docx"
+            output_filename = "Запрос в страховую о выдаче акта и расчёта представитель.docx"
+            replace_words_in_word(
+                ["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}", 
+                "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}", 
+                "{{ NДоверенности }}", "{{ Дата_доверенности }}", "{{ Представитель }}", "{{ Телефон_представителя }}", 
+                "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}", 
+                "{{ Nавто_клиента }}", "{{ Марка_модель_виновника }}", "{{ Nавто_виновник }}", 
+                "{{ Телефон }}"],
+                [str(data.get("insurance", "")), str(data.get("city", "")), str(data.get("fio", "")), 
+                str(data.get("date_of_birth", "")), str(data.get("seria_pasport", "")), 
+                str(data.get("number_pasport", "")), str(data.get("where_pasport", "")), 
+                str(data.get("when_pasport", "")),str(data.get("N_dov_not", "")), 
+                str(data.get("data_dov_not", "")), str(data.get("fio_not", "")), str(data.get("number_not", "")), 
+                str(data.get("date_dtp", "")), str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
+                str(data.get("marks", "")), str(data.get("car_number", "")), 
+                str(data.get("marks_culp", "")), str(data.get("number_auto_culp", "")), 
+                str(data.get("number", ""))],
+                template_path,
+                f"clients/"+str(data['client_id'])+f"/Документы/{output_filename}"
+            )
+        else:
+            template_path = "Шаблоны/1. ДТП/1. На ремонт/5. Запрос в страховую о выдаче акта и расчета/5. Запрос в страховую о выдаче акта и расчёта.docx"
+            output_filename = "Запрос в страховую о выдаче акта и расчёта.docx"
+
+            # Заполняем шаблон
+            replace_words_in_word(
+                ["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}", 
+                "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}", 
+                "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}", 
+                "{{ Nавто_клиента }}", "{{ Марка_модель_виновника }}", "{{ Nавто_виновник }}", 
+                "{{ Телефон }}", "{{ ФИОк }}"],
+                [str(data.get("insurance", "")), str(data.get("city", "")), str(data.get("fio", "")), 
+                str(data.get("date_of_birth", "")), str(data.get("seria_pasport", "")), 
+                str(data.get("number_pasport", "")), str(data.get("where_pasport", "")), 
+                str(data.get("when_pasport", "")), str(data.get("date_dtp", "")), 
+                str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
+                str(data.get("marks", "")), str(data.get("car_number", "")), 
+                str(data.get("marks_culp", "")), str(data.get("number_auto_culp", "")), 
+                str(data.get("number", "")), str(data.get("fio_k", ""))],
+                template_path,
+                f"clients/"+str(data['client_id'])+f"/Документы/{output_filename}"
+            )
+        
+        # Отправляем документ агенту
+        try: 
+            keyboard = types.InlineKeyboardMarkup()
+            if data.get('seria_insurance', '') == '':
+                if data['accident'] == 'ДТП' and data['sobstvenik'] != 'С начала':
+                    keyboard.add(types.InlineKeyboardButton("▶️ К заявлению в страховую", callback_data=f"dtp_continue_documents_{data['client_id']}"))
+                elif data['accident'] == 'Подал заявление':
+                    keyboard.add(types.InlineKeyboardButton("▶️ Продолжить", callback_data=f"agent_podal_continue_documents_{data['client_id']}")) 
+                elif data['accident'] == 'Нет ОСАГО':
+                    keyboard.add(types.InlineKeyboardButton("▶️ Заявление о выдаче из ГИБДД", callback_data=f"agent_net_osago_continue_documents_{data['client_id']}")) 
+            keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(user_id, data['client_id'])))   
+            with open(f"clients/"+str(data['client_id'])+f"/Документы/{output_filename}", 'rb') as doc:
+                bot.send_document(call.message.chat.id, doc, caption="📋 Запрос на выдачу документов", reply_markup = keyboard)
+        except FileNotFoundError:
+            bot.send_message(call.message.chat.id, "❌ Ошибка: файл не найден")
+        
+        if data['user_id'] != '8572367590':
+            try:
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"view_contract_{data['client_id']}"))  
+                bot.send_message(
+                    int(data['user_id']),
+                    f"✅ Запрос на выдачу документов составлен, ознакомиться с ним можно в личном кабинете",
+                    reply_markup = keyboard
+                )
+            except Exception as e:
+                print(f"Ошибка отправки уведомления клиенту: {e}")
     def process_driver_license_back_agent(message, agent_id, contract_data, user_message_id):
         """Обработка фото обратной стороны ВУ и создание PDF"""
         try:
@@ -2194,10 +2365,12 @@ def setup_client_agent_handlers(bot, user_temp_data):
         except:
             pass
         if not message.photo:
+            keyboard = create_back_keyboard("back_to_driver_license_front")  # ✅ Добавлена кнопка
             msg = bot.send_message(
                 message.chat.id,
                 "❌ Пожалуйста, отправьте фотографию!\n\n📸 Отправьте фото <b>обратной стороны</b> водительского удостоверения:",
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup=keyboard  # ✅ Добавлена клавиатура
             )
             bot.register_next_step_handler(msg, process_driver_license_back_agent, agent_id, contract_data, msg.message_id)
             return
@@ -2226,8 +2399,10 @@ def setup_client_agent_handlers(bot, user_temp_data):
             keyboard = types.InlineKeyboardMarkup()
             btn1 = types.InlineKeyboardButton("Свидетельство о регистрации ТС", callback_data="STS")
             btn2 = types.InlineKeyboardButton("Паспорт ТС", callback_data="PTS")
+            btn3 = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_driver_license_front")
             keyboard.add(btn1)
             keyboard.add(btn2)
+            keyboard.add(btn3)
             bot.send_message(
                 message.chat.id, 
                 "✅ Водительское удостоверение успешно сохранено!\nВыберите документ о регистрации ТС:", 
@@ -2243,7 +2418,27 @@ def setup_client_agent_handlers(bot, user_temp_data):
             )
             bot.register_next_step_handler(msg, process_driver_license_back_agent, agent_id, contract_data, msg.message_id)
 
-
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_driver_license_front")
+    @prevent_double_click(timeout=3.0)
+    def back_to_driver_license_front(call):
+        """Возврат к загрузке лицевой стороны ВУ"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        contract_data = user_temp_data[agent_id]['contract_data']
+        
+        # Очищаем временные данные лицевой стороны
+        if 'driver_license_front' in user_temp_data[agent_id]:
+            del user_temp_data[agent_id]['driver_license_front']
+        
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="📸 Отправьте фото <b>лицевой стороны</b> водительского удостоверения:",
+            parse_mode='HTML',
+            reply_markup=None
+        )
+        bot.register_next_step_handler(msg, process_driver_license_front_agent, agent_id, contract_data, msg.message_id)
     def create_pdf_from_images_agent(image1_bytes, image2_bytes, output_path):
         """
         Создает PDF файл из двух изображений
@@ -2295,35 +2490,12 @@ def setup_client_agent_handlers(bot, user_temp_data):
             pass
 
         data.update({"seria_docs": message.text})
-        save_step_state(message.from_user.id, 'seria_docs', data)
         
-        keyboard = create_back_keyboard("back_to_seria_docs")
-        message = bot.send_message(message.chat.id, text=f"Введите номер документа {data['docs']}", reply_markup=keyboard)
+        keyboard = create_back_keyboard("back_to_number_docs")
+        message = bot.send_message(message.chat.id, text=f"Введите номер документа {data.get('docs', 'СТС')}", reply_markup=keyboard)
         user_message_id = message.message_id
         bot.register_next_step_handler(message, number_docs, data, user_message_id)
 
-    @bot.callback_query_handler(func=lambda call: call.data == "back_to_seria_docs")
-    @prevent_double_click(timeout=3.0)
-    def back_to_seria_docs(call):
-        """Возврат к вводу серии документа"""
-        agent_id = call.from_user.id
-        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
-        
-        data = user_temp_data[agent_id]['contract_data']
-        
-        # Возвращаемся к выбору типа документа
-        keyboard = types.InlineKeyboardMarkup()
-        btn1 = types.InlineKeyboardButton("Свидетельство о регистрации ТС", callback_data="STS")
-        btn2 = types.InlineKeyboardButton("Паспорт ТС", callback_data="PTS")
-        keyboard.add(btn1)
-        keyboard.add(btn2)
-        
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Выберите документ о регистрации ТС:",
-            reply_markup=keyboard
-        )
     def number_docs(message, data, user_message_id):
         bot.clear_step_handler_by_chat_id(chat_id=message.chat.id)
         
@@ -2335,21 +2507,20 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         if message.text.isdigit():
             data.update({"number_docs": message.text})
-            save_step_state(message.from_user.id, 'number_docs', data)
             
-            keyboard = create_back_keyboard("back_to_number_docs")
+            keyboard = create_back_keyboard("back_to_data_docs")
             message = bot.send_message(
                 message.chat.id,
-                text=f"Введите дату выдачи документа {data['docs']} в формате ДД.ММ.ГГГГ",
+                text=f"Введите дату выдачи документа {data.get('docs', 'СТС')} в формате ДД.ММ.ГГГГ",
                 reply_markup=keyboard
             )
             user_message_id = message.message_id
             bot.register_next_step_handler(message, data_docs, data, user_message_id)
         else:
-            keyboard = create_back_keyboard("back_to_seria_docs")
+            keyboard = create_back_keyboard("back_to_number_docs")
             message = bot.send_message(
                 message.chat.id,
-                text=f"Неправильный формат!\nВведите номер документа {data['docs']}, он должен состоять только из цифр",
+                text=f"Неправильный формат!\nВведите номер документа {data.get('docs', 'СТС')}, он должен состоять только из цифр",
                 reply_markup=keyboard
             )
             user_message_id = message.message_id
@@ -2363,14 +2534,32 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         data = user_temp_data[agent_id]['contract_data']
         
-        keyboard = create_back_keyboard("back_to_seria_docs")
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("📄 Вернуться к договору", callback_data=get_contract_callback(call.from_user.id, data['client_id']))) 
         msg = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f"Введите серию документа {data['docs']}",
+            text=f"Введите серию документа {data.get('docs', 'СТС')}",
             reply_markup=keyboard
         )
         bot.register_next_step_handler(msg, seria_docs, data, msg.message_id)
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_download_docs")
+    @prevent_double_click(timeout=3.0)
+    def back_to_download_docs(call):
+        """Возврат к вводу номера документа"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        data = user_temp_data[agent_id]['contract_data']
+        
+        keyboard = create_back_keyboard("back_to_data_docs")
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"Введите дату выдачи документа {data.get('docs', 'СТС')} в формате ДД.ММ.ГГГГ",
+            reply_markup=keyboard
+        )
+        bot.register_next_step_handler(msg, data_docs, data, msg.message_id)
     def data_docs(message, data, user_message_id):
         bot.clear_step_handler_by_chat_id(chat_id=message.chat.id)
         
@@ -2384,49 +2573,51 @@ def setup_client_agent_handlers(bot, user_temp_data):
         try:
             datetime.strptime(message.text, "%d.%m.%Y")
             data['data_docs'] = message.text.strip()
-            save_step_state(agent_id, 'data_docs', data)
-            
+            try:
+                bot.delete_message(message.chat.id, user_temp_data[agent_id]['message_id'])
+            except:
+                pass
+
             user_temp_data[agent_id]['contract_data'] = data
-            
-            # Переходим к загрузке документов в зависимости от типа
-            if data['docs'] == 'СТС':
-                msg = bot.send_message(
-                    message.chat.id,
-                    "📸 Отправьте фото <b>лицевой стороны</b> СТС:",
-                    parse_mode='HTML'
-                )
-                bot.register_next_step_handler(msg, process_sts_front_agent, agent_id, data, msg.message_id)
-            elif data['docs'] == 'ПТС':
-                # Инициализируем хранилище для фото ПТС
-                if agent_id not in user_temp_data:
-                    user_temp_data[agent_id] = {}
-                user_temp_data[agent_id]['pts_photos'] = []
-                user_temp_data[agent_id]['contract_data'] = data
-                
-                keyboard = types.InlineKeyboardMarkup()
-                btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_pts_upload_{agent_id}")
-                keyboard.add(btn_finish)
-                
-                bot.send_message(
-                    message.chat.id,
-                    "📸 Отправьте фото страниц ПТС\n\n"
-                    "Можно отправлять по одной фотографии или несколько сразу.\n"
-                    "Когда загрузите все страницы, нажмите кнопку ниже:",
-                    reply_markup=keyboard
-                )
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("Да", callback_data=f"health_yes"))
+            keyboard.add(types.InlineKeyboardButton("Нет", callback_data=f"health_no"))
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_download_docs"))
+            bot.send_message(
+                agent_id, 
+                "Имеется ли причинения вреда здоровья в следствии ДТП?", 
+                reply_markup=keyboard
+            )
                 
         except ValueError:
-            keyboard = create_back_keyboard("back_to_number_docs")
+            keyboard = create_back_keyboard("back_to_data_docs")
             message = bot.send_message(
                 message.chat.id, 
-                text=f"Неправильный формат ввода!\nВведите дату выдачи документа {data['docs']} в формате ДД.ММ.ГГГГ",
+                text=f"Неправильный формат ввода!\nВведите дату выдачи документа {data.get('docs', 'СТС')} в формате ДД.ММ.ГГГГ",
                 reply_markup=keyboard
             )
             user_message_id = message.message_id
             bot.register_next_step_handler(message, data_docs, data, user_message_id)
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_data_docs")
+    @prevent_double_click(timeout=3.0)
+    def back_to_data_docs(call):
+        """Возврат к вводу даты документа"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        data = user_temp_data[agent_id]['contract_data']
+        
+        keyboard = create_back_keyboard("back_to_number_docs")
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"Введите номер документа {data.get('docs', 'СТС')}",
+            reply_markup=keyboard
+        )
+        bot.register_next_step_handler(msg, number_docs, data, msg.message_id)
         # ==================== СТС (2 стороны) ====================
 
-    def process_sts_front_agent(message, client_id, data, user_message_id):
+    def process_sts_front_agent(message, agent_id, data, user_message_id):
         """Обработка фото лицевой стороны СТС"""
         try:
             bot.delete_message(message.chat.id, user_message_id)
@@ -2434,12 +2625,14 @@ def setup_client_agent_handlers(bot, user_temp_data):
         except:
             pass
         if not message.photo:
+            keyboard = create_back_keyboard("back_to_download_docs")  # ✅ ДОБАВЛЕНА КНОПКА
             msg = bot.send_message(
                 message.chat.id,
                 "❌ Пожалуйста, отправьте фотографию!\n\n📸 Отправьте фото <b>лицевой стороны</b> СТС:",
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup=keyboard  # ✅ ДОБАВЛЕНА КЛАВИАТУРА
             )
-            bot.register_next_step_handler(msg, process_sts_front_agent, client_id, data, msg.message_id)
+            bot.register_next_step_handler(msg, process_sts_front_agent, agent_id, data, msg.message_id)
             return
         
         try:
@@ -2448,31 +2641,34 @@ def setup_client_agent_handlers(bot, user_temp_data):
             downloaded_file = bot.download_file(file_info.file_path)
             
             # Сохраняем во временное хранилище
-            if client_id not in user_temp_data:
-                user_temp_data[client_id] = {}
+            if agent_id not in user_temp_data:
+                user_temp_data[agent_id] = {}
             
-            user_temp_data[client_id]['sts_front'] = downloaded_file
-            user_temp_data[client_id]['contract_data'] = data
-            
+            user_temp_data[agent_id]['sts_front'] = downloaded_file
+            user_temp_data[agent_id]['contract_data'] = data
+            keyboard = create_back_keyboard("back_to_download_docs")
             # Запрашиваем обратную сторону
             msg = bot.send_message(
                 message.chat.id,
                 "✅ Лицевая сторона получена!\n\n📸 Теперь отправьте фото <b>обратной стороны</b> СТС:",
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup = keyboard
             )
-            bot.register_next_step_handler(msg, process_sts_back_agent, client_id, data, msg.message_id)
+            bot.register_next_step_handler(msg, process_sts_back_agent, agent_id, data, msg.message_id)
             
         except Exception as e:
             print(f"Ошибка при обработке фото СТС (лицевая сторона): {e}")
+            keyboard = create_back_keyboard("back_to_download_docs")
             msg = bot.send_message(
                 message.chat.id,
                 "❌ Произошла ошибка при обработке фото. Попробуйте снова:",
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup = keyboard
             )
-            bot.register_next_step_handler(msg, process_sts_front_agent, client_id, data, msg.message_id)
+            bot.register_next_step_handler(msg, process_sts_front_agent, agent_id, data, msg.message_id)
 
 
-    def process_sts_back_agent(message, client_id, data, user_message_id):
+    def process_sts_back_agent(message, agent_id, data, user_message_id):
         """Обработка фото обратной стороны СТС и создание PDF"""
         try:
             bot.delete_message(message.chat.id, user_message_id)
@@ -2480,12 +2676,14 @@ def setup_client_agent_handlers(bot, user_temp_data):
         except:
             pass
         if not message.photo:
+            keyboard = create_back_keyboard("back_to_download_docs")
             msg = bot.send_message(
                 message.chat.id,
                 "❌ Пожалуйста, отправьте фотографию!\n\n📸 Отправьте фото <b>обратной стороны</b> СТС:",
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup = keyboard
             )
-            bot.register_next_step_handler(msg, process_sts_back_agent, client_id, data, msg.message_id)
+            bot.register_next_step_handler(msg, process_sts_back_agent, agent_id, data, msg.message_id)
             return
         
         try:
@@ -2494,7 +2692,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             downloaded_file = bot.download_file(file_info.file_path)
             
             # Получаем лицевую сторону из временного хранилища
-            front_photo = user_temp_data[client_id]['sts_front']
+            front_photo = user_temp_data[agent_id]['sts_front']
             print(data)
             # Создаем директорию для сохранения
             client_dir = f"clients/{data['client_id']}/Документы"
@@ -2505,40 +2703,48 @@ def setup_client_agent_handlers(bot, user_temp_data):
             create_pdf_from_images_agent2([front_photo, downloaded_file], pdf_path)
             
             # Очищаем временные данные
-            if 'sts_front' in user_temp_data[client_id]:
-                del user_temp_data[client_id]['sts_front']
+            if 'sts_front' in user_temp_data[agent_id]:
+                del user_temp_data[agent_id]['sts_front']
             
             msg = bot.send_message(
                 message.chat.id,
                 "✅ СТС успешно сохранен!"
             )
             
-            finish_document_upload_agent(message.chat.id, client_id, data, msg.message_id)
+            finish_document_upload_agent(message.chat.id, agent_id, data, msg.message_id)
             
         except Exception as e:
             print(f"Ошибка при создании PDF СТС: {e}")
+            keyboard = create_back_keyboard("back_to_download_docs")
             msg = bot.send_message(
                 message.chat.id,
                 "❌ Произошла ошибка при обработке фото. Попробуйте снова:",
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup = keyboard
             )
-            bot.register_next_step_handler(msg, process_sts_back_agent, client_id, data, msg.message_id)
+            bot.register_next_step_handler(msg, process_sts_back_agent, agent_id, data, msg.message_id)
 
 
     # ==================== ПТС (множественные фото) ====================
 
-    @bot.message_handler(content_types=['photo'])
+    @bot.message_handler(content_types=['photo'],
+                         func=lambda message: message.chat.id not in upload_sessions or 'photos' not in upload_sessions.get(message.chat.id, {}))
     def handle_pts_photos(message):
         """Обработчик фотографий ПТС (множественная загрузка)"""
         client_id = message.chat.id
+        print(3)
         cleanup_messages(bot, message.chat.id, message.message_id, 3)
         
         def send_photo_confirmation(chat_id, photo_type, count):
             """Отправка отложенного подтверждения загрузки"""
-            data = get_admin_from_db_by_user_id(chat_id)
+            data_admin = get_admin_from_db_by_user_id(chat_id)
+            data = user_temp_data[chat_id]
             keyboard = types.InlineKeyboardMarkup()
-            if data['admin_value'] == 'Клиент':
+            print(1)
+            if data_admin['admin_value'] == 'Клиент':
                 btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_{photo_type}_upload_client_{chat_id}")
+            elif data.get('user_id', '') == '8572367590':
+                btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_{photo_type}_upload_admin_{chat_id}")
             else:
                 btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_{photo_type}_upload_agent_{chat_id}")
             keyboard.add(btn_finish)
@@ -2703,10 +2909,11 @@ def setup_client_agent_handlers(bot, user_temp_data):
             data = user_temp_data[client_id]['contract_data']
             
             if len(photos) == 0:
-                
                 keyboard = types.InlineKeyboardMarkup()
                 btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_pts_upload_agent_{client_id}")
+                btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_doc_choice")  # ✅ Добавлена кнопка
                 keyboard.add(btn_finish)
+                keyboard.add(btn_back)  # ✅ Добавлена кнопка
                 
                 bot.send_message(
                     call.message.chat.id,
@@ -2727,7 +2934,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             del user_temp_data[client_id]['pts_photos']
             
             msg = bot.send_message(call.message.chat.id, f"✅ ПТС успешно сохранен! (Страниц: {len(photos)})")
-            
+            print(data.get('dkp'))
             # Проверяем, нужно ли загружать ДКП
             if data.get('dkp') == 'Договор ДКП':
                 start_dkp_upload_agent(call.message.chat.id, client_id, data, msg.message_id)
@@ -2752,11 +2959,12 @@ def setup_client_agent_handlers(bot, user_temp_data):
             user_temp_data[client_id] = {}
         user_temp_data[client_id]['dkp_photos'] = []
         user_temp_data[client_id]['contract_data'] = data
-        
+
         keyboard = types.InlineKeyboardMarkup()
         btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_dkp_upload_agent_{client_id}")
+        btn_finish2 = types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_doc_choice")
         keyboard.add(btn_finish)
-        
+        keyboard.add(btn_finish2)
         bot.send_message(
             chat_id,
             "📸 Отправьте фото страниц Договора купли-продажи\n\n"
@@ -2777,7 +2985,8 @@ def setup_client_agent_handlers(bot, user_temp_data):
             bot.delete_message(call.message.chat.id, call.message.message_id)
             
             if client_id not in user_temp_data or 'dkp_photos' not in user_temp_data[client_id]:
-                bot.send_message(call.message.chat.id, "❌ Ошибка: фотографии не найдены.")
+                keyboard.add(btn_finish)
+                bot.send_message(call.message.chat.id, "❌ Ошибка: фотографии не найдены.", rely_markup = keyboard)
                 return
             
             photos = user_temp_data[client_id]['dkp_photos']
@@ -2818,21 +3027,32 @@ def setup_client_agent_handlers(bot, user_temp_data):
 
 
     # ==================== Завершение загрузки ====================
-    def finish_document_upload_agent(chat_id, client_id, data, user_message_id):
+    def finish_document_upload_agent(chat_id, agent_id, data, user_message_id):
         """Завершение загрузки всех документов и переход к выбору страховой"""
         try:
             bot.delete_message(chat_id, user_message_id)
         except:
             pass
-        user_temp_data[client_id]['contract_data'] = data
+        if agent_id not in user_temp_data:
+            user_temp_data[agent_id] = {}
+        user_temp_data[agent_id]['protocol_photos'] = []
+        user_temp_data[agent_id]['contract_data'] = data
+
+        # Определяем текст в зависимости от типа протокола
+        if data.get("who_dtp", '') == 'Евро-протокол':
+            protocol_text = "Евро-протокола"
+        else:
+            protocol_text = "протокола ГИБДД"
         keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("Да", callback_data=f"health_yes"))
-        keyboard.add(types.InlineKeyboardButton("Нет", callback_data=f"health_no"))
+        btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_protocol_photos_upload_agent_{agent_id}")
+        keyboard.add(btn_finish)
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_doc_choice"))
         bot.send_message(
             chat_id, 
-            "✅ Все документы успешно загружены!\n\nИмеется ли причинения вреда здоровья в следствии ДТП?", 
+            f"📸 Прикрепите фото {protocol_text}\n\nФото должны быть четкими, не засвечены.\nМожно отправлять по одной фотографии или несколько сразу.\nКогда загрузите все фото, нажмите кнопку ниже:", 
             reply_markup=keyboard
         )
+
     @bot.callback_query_handler(func=lambda call: call.data in ['health_yes', 'health_no'])
     @prevent_double_click(timeout=3.0)
     def finish_dkp_health_callback(call):
@@ -2842,7 +3062,8 @@ def setup_client_agent_handlers(bot, user_temp_data):
             if data.get('who_dtp') == "По форме ГИБДД":
                 keyboard = types.InlineKeyboardMarkup()
                 keyboard.add(types.InlineKeyboardButton("Жительства", callback_data=f"place_home"))
-                keyboard.add(types.InlineKeyboardButton("ДТП", callback_data=f"place_dtp"))  
+                keyboard.add(types.InlineKeyboardButton("ДТП", callback_data=f"place_dtp"))
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_finish_document_upload"))  
                 data['number_photo'] = '-'
                 user_temp_data[call.from_user.id]['contract_data'] = data
                 msg = bot.edit_message_text(
@@ -2854,6 +3075,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             else:
                 keyboard = types.InlineKeyboardMarkup()
                 keyboard.add(types.InlineKeyboardButton("Фотофиксация не прикреплена", callback_data=f"agent_photo_non_gosuslugi"))
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_finish_document_upload"))
                 msg = bot.edit_message_text(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
@@ -2865,6 +3087,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             keyboard = types.InlineKeyboardMarkup()
             keyboard.add(types.InlineKeyboardButton("Да", callback_data=f"culp_have_osago_yes"))
             keyboard.add(types.InlineKeyboardButton("Нет", callback_data=f"culp_have_osago_no"))
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_finish_document_upload"))
             msg = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -2958,7 +3181,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Да", callback_data=f"health_yes"))
         keyboard.add(types.InlineKeyboardButton("Нет", callback_data=f"health_no"))
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_year_auto"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_download_docs"))
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -3043,7 +3266,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         data.update({"insurance": message.text})
         save_step_state(message.from_user.id, 'other_insurance', data)
         
-        keyboard = create_back_keyboard("back_to_insurance_choice")
+        keyboard = create_back_keyboard("back_to_seria_insurance")
         message = bot.send_message(message.chat.id, text="Введите серию страхового полиса", reply_markup=keyboard)
         user_message_id = message.message_id
         bot.register_next_step_handler(message, seria_insurance, data, user_message_id)
@@ -3073,7 +3296,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         data.update({"seria_insurance": message.text})
         save_step_state(message.from_user.id, 'seria_insurance', data)
         
-        keyboard = create_back_keyboard("back_to_seria_insurance")
+        keyboard = create_back_keyboard("back_to_number_insurance")
         message = bot.send_message(message.chat.id, text="Введите номер страхового полиса", reply_markup=keyboard)
         user_message_id = message.message_id
         bot.register_next_step_handler(message, number_insurance, data, user_message_id)
@@ -3116,7 +3339,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         data.update({"number_insurance": message.text})
         save_step_state(message.from_user.id, 'number_insurance', data)
         
-        keyboard = create_back_keyboard("back_to_number_insurance")
+        keyboard = create_back_keyboard("back_to_date_insurance")
         message = bot.send_message(message.chat.id, text="Введите дату заключения договора ОСАГО (страхового полиса) в формате ДД.ММ.ГГГГ", reply_markup=keyboard)
         user_message_id = message.message_id
         bot.register_next_step_handler(message, date_insurance, data, user_message_id)
@@ -3139,7 +3362,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         bot.register_next_step_handler(msg, seria_insurance, data, msg.message_id)
     def date_insurance(message, data, user_message_id):
         bot.clear_step_handler_by_chat_id(chat_id=message.chat.id)
-        
+        agent_id = message.from_user.id
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
@@ -3156,7 +3379,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             
             # Проверка: дата не в будущем
             if insurance_date > current_date:
-                keyboard = create_back_keyboard("back_to_number_insurance")
+                keyboard = create_back_keyboard("back_to_date_insurance")
                 msg = bot.send_message(
                     message.chat.id, 
                     "❌ Дата не может быть в будущем!\n"
@@ -3168,7 +3391,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             
             # Проверка: дата не старше 1 года
             if insurance_date < two_years_ago:
-                keyboard = create_back_keyboard("back_to_number_insurance")
+                keyboard = create_back_keyboard("back_to_date_insurance")
                 msg = bot.send_message(
                     message.chat.id, 
                     f"❌ Полис не может быть старше 1 года!\n"
@@ -3181,14 +3404,16 @@ def setup_client_agent_handlers(bot, user_temp_data):
             
             # Все проверки пройдены - сохраняем дату
             data['date_insurance'] = message.text.strip()
-            save_step_state(message.from_user.id, 'date_insurance', data)
-            
-            keyboard = create_back_keyboard("back_to_date_insurance")
-            msg = bot.send_message(message.chat.id, "Введите ФИО виновника ДТП в формате: Иванов Иван Иванович", reply_markup=keyboard)
-            bot.register_next_step_handler(msg, fio_culp, data, msg.message_id)
-            
+
+            if data.get('accident', '') != 'После ямы':
+                keyboard = create_back_keyboard("back_to_fio_culp")
+                msg = bot.send_message(message.chat.id, "Введите ФИО виновника ДТП в формате: Иванов Иван Иванович", reply_markup=keyboard)
+                bot.register_next_step_handler(msg, fio_culp, data, msg.message_id)
+            elif data.get('accident', '') == 'После ямы':
+                send_full_contract_summary_to_client(agent_id, data)
+
         except ValueError:
-            keyboard = create_back_keyboard("back_to_number_insurance")
+            keyboard = create_back_keyboard("back_to_date_insurance")
             msg = bot.send_message(
                 message.chat.id, 
                 "❌ Неправильный формат ввода!\n"
@@ -3240,7 +3465,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             data.update({"fio_culp": message.text})
             save_step_state(message.from_user.id, 'fio_culp', data)
             
-            keyboard = create_back_keyboard("back_to_fio_culp")
+            keyboard = create_back_keyboard("back_to_marks_culp")
             message = bot.send_message(message.chat.id, text="Введите марку, модель виновника ДТП", reply_markup=keyboard)
             user_message_id = message.message_id
             bot.register_next_step_handler(message, marks_culp, data, user_message_id)
@@ -3276,7 +3501,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         keyboard = types.InlineKeyboardMarkup()
         btn_finish = types.InlineKeyboardButton("🆎 Нестандартный формат гос. номера", callback_data=f"non_standart_number_car_agent_culp")
-        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_marks_culp")
+        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_number_auto_culp")
         keyboard.add(btn_finish)
         keyboard.add(btn_back)
         
@@ -3322,7 +3547,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         if has_lowercase:
             keyboard = types.InlineKeyboardMarkup()
             btn_finish = types.InlineKeyboardButton("🆎 Нестандартный формат гос. номера", callback_data=f"non_standart_number_car_agent_culp")
-            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_marks_culp")
+            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_number_auto_culp")  # ИСПРАВЛЕНО
             keyboard.add(btn_finish)
             keyboard.add(btn_back)
             msg = bot.send_message(
@@ -3338,7 +3563,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         if not match:
             keyboard = types.InlineKeyboardMarkup()
             btn_finish = types.InlineKeyboardButton("🆎 Нестандартный формат гос. номера", callback_data=f"non_standart_number_car_agent_culp")
-            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_marks_culp")
+            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_number_auto_culp")  # ИСПРАВЛЕНО
             keyboard.add(btn_finish)
             keyboard.add(btn_back)
             msg = bot.send_message(
@@ -3362,7 +3587,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         if digits == "000":
             keyboard = types.InlineKeyboardMarkup()
             btn_finish = types.InlineKeyboardButton("🆎 Нестандартный формат гос. номера", callback_data=f"non_standart_number_car_agent_culp")
-            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_marks_culp")
+            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_number_auto_culp")  # ИСПРАВЛЕНО
             keyboard.add(btn_finish)
             keyboard.add(btn_back)
             msg = bot.send_message(
@@ -3378,7 +3603,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         if region == "00" or region == "000":
             keyboard = types.InlineKeyboardMarkup()
             btn_finish = types.InlineKeyboardButton("🆎 Нестандартный формат гос. номера", callback_data=f"non_standart_number_car_agent_culp")
-            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_marks_culp")
+            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_number_auto_culp")  # ИСПРАВЛЕНО
             keyboard.add(btn_finish)
             keyboard.add(btn_back)
             msg = bot.send_message(
@@ -3402,7 +3627,45 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         # ВЫЗЫВАЕМ ОТПРАВКУ ДАННЫХ КЛИЕНТУ НА ПОДТВЕРЖДЕНИЕ
         send_full_contract_summary_to_client(agent_id, data)
-
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_non_standart_number_car_agent_culp")
+    @prevent_double_click(timeout=3.0)
+    def back_to_non_standart_number_car_agent_culp(call):
+        """Возврат к вводу марки виновника"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        data = user_temp_data[agent_id]['contract_data']
+        
+        keyboard = types.InlineKeyboardMarkup()
+        btn_finish = types.InlineKeyboardButton("🆎 Нестандартный формат гос. номера", callback_data=f"non_standart_number_car_agent_culp")
+        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_number_auto_culp")
+        keyboard.add(btn_finish)
+        keyboard.add(btn_back)
+        
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите номер авто виновника ДТП",
+            reply_markup=keyboard
+        )
+        bot.register_next_step_handler(msg, number_auto_culp, data, msg.message_id)
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_number_auto_culp")
+    @prevent_double_click(timeout=3.0)
+    def back_to_number_auto_culp(call):
+        """Возврат к вводу марки виновника"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        data = user_temp_data[agent_id]['contract_data']
+        
+        keyboard = create_back_keyboard("back_to_fio_culp")
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите марку, модель виновника ДТП",
+            reply_markup=keyboard
+        )
+        bot.register_next_step_handler(msg, marks_culp, data, msg.message_id)
     def send_full_contract_summary_to_client(agent_id, contract_data):
         """Отправка ПОЛНЫХ данных договора клиенту на подтверждение (после сбора данных о ДТП)"""
         client_user_id = user_temp_data[agent_id]['client_user_id']
@@ -3463,11 +3726,13 @@ def setup_client_agent_handlers(bot, user_temp_data):
 
         bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
         contract_data = user_temp_data[call.from_user.id]
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_non_standart_number_car_agent_culp"))
         msg = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="Введите номер авто виновника ДТП",
-                reply_markup=None
+                reply_markup=keyboard
             )
         bot.register_next_step_handler(msg, process_agent_car_number_non_standart_culp, msg.message_id, contract_data)
 
@@ -3480,16 +3745,20 @@ def setup_client_agent_handlers(bot, user_temp_data):
             pass
         
         car_number = message.text.replace(" ", "").upper()
-        contract_data['number_auto_culp'] = car_number
         agent_id = message.from_user.id
-        user_temp_data[agent_id]['contract_data'] = contract_data
         
-        # ✅ КРИТИЧЕСКИ ВАЖНО: Восстанавливаем client_user_id из данных
-        if 'user_id' in contract_data and 'client_user_id' not in user_temp_data[agent_id]:
-            user_temp_data[agent_id]['client_user_id'] = int(contract_data['user_id'])
+        # ✅ ИСПРАВЛЕНИЕ: НЕ создаём новый словарь, а ОБНОВЛЯЕМ существующий
+        user_temp_data[agent_id]['contract_data']['number_auto_culp'] = car_number
+        
+        # ✅ Берём полные данные из user_temp_data
+        full_contract_data = user_temp_data[agent_id]['contract_data']
+        
+        # ✅ Восстанавливаем client_user_id если его нет
+        if 'user_id' in full_contract_data and 'client_user_id' not in user_temp_data[agent_id]:
+            user_temp_data[agent_id]['client_user_id'] = int(full_contract_data['user_id'])
         
         # ВЫЗЫВАЕМ ОТПРАВКУ ДАННЫХ КЛИЕНТУ НА ПОДТВЕРЖДЕНИЕ
-        send_full_contract_summary_to_client(agent_id, contract_data)
+        send_full_contract_summary_to_client(agent_id, full_contract_data)
     @bot.callback_query_handler(func=lambda call: call.data == "agent_photo_non_gosuslugi")
     @prevent_double_click(timeout=3.0)
     def handle_agent_photo_non_gosuslugi(call):
@@ -3524,6 +3793,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         else:
             keyboard = types.InlineKeyboardMarkup()
             keyboard.add(types.InlineKeyboardButton("Фотофиксация не прикреплена", callback_data=f"agent_photo_non_gosuslugi"))
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_health_question"))
             msg = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -3566,7 +3836,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Фотофиксация не прикреплена", callback_data=f"agent_photo_non_gosuslugi"))
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_finish_dtp_upload"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_health_question"))
         
         msg = bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -3609,25 +3879,45 @@ def setup_client_agent_handlers(bot, user_temp_data):
         """Обработка ремонт не более 50км от места ДТП или места жительства"""
         agent_id = call.from_user.id
         data = user_temp_data[agent_id]['contract_data']
-
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
         if call.data == "place_home":
             data['place'] = "Жительства"
         else:
             data['place'] = "ДТП"
 
         user_temp_data[agent_id]['contract_data'] = data
-        save_step_state(agent_id, 'place', data)
+
         
         context = "Укажите реквизиты банковского счёта для перечисления денежной компенсации. Они потребуются, если страховая компания не сможет организовать восстановительный ремонт.\n\nЕсли реквизиты не будут указаны, денежные средства будут автоматически направлены в почтовое отделение по месту вашей регистрации."
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Продолжить", callback_data=f"agent_next_bank"))
         keyboard.add(types.InlineKeyboardButton("Отказаться от ввода реквизитов", callback_data=f"agent_cancel_bank"))
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_place_choice"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_number_photo_or_health"))  # ✅ ИЗМЕНЕНА КНОПКА
         
         msg = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=context,
+            reply_markup=keyboard
+        )
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_number_photo_or_health")
+    @prevent_double_click(timeout=3.0)
+    def back_to_number_photo_or_health(call):
+        """Возврат к вопросу о фотофиксации или выбору места"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        data = user_temp_data[agent_id]['contract_data']
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("Жительства", callback_data=f"place_home"))
+        keyboard.add(types.InlineKeyboardButton("ДТП", callback_data=f"place_dtp"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_health_question"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Где необходимо произвести ремонт: в пределах 50 км от места ДТП или от места жительства?",
             reply_markup=keyboard
         )
     @bot.callback_query_handler(func=lambda call: call.data == "back_to_place_choice")
@@ -3645,7 +3935,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             keyboard = types.InlineKeyboardMarkup()
             keyboard.add(types.InlineKeyboardButton("Жительства", callback_data=f"place_home"))
             keyboard.add(types.InlineKeyboardButton("ДТП", callback_data=f"place_dtp"))
-            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_finish_dtp_upload"))
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_health_question"))
             
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -3671,7 +3961,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
     def callback_agent_requisites(call):
         agent_id = call.from_user.id
         data = user_temp_data[agent_id]['contract_data']
-        
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
         if call.data == "agent_next_bank":
             msg = bot.edit_message_text(
                     chat_id=call.message.chat.id,
@@ -3679,12 +3969,15 @@ def setup_client_agent_handlers(bot, user_temp_data):
                     text="<b>Заполнение банковских реквизитов</b>",
                     parse_mode='HTML'
                 )
+            user_temp_data[agent_id]['contract_data']['message_id'] = msg.message_id 
+            keyboard = create_back_keyboard("back_to_requisites_choice")  # ✅ ИЗМЕНЕНА КНОПКА
             msg2 = bot.send_message(
                     chat_id=call.message.chat.id,
-                    text="Введите банк получателя клиента"
+                    text="Введите банк получателя клиента",
+                    reply_markup = keyboard
                 )
             user_message_id = msg2.message_id
-            bot.register_next_step_handler(msg, bank, data, user_message_id, msg.message_id)
+            bot.register_next_step_handler(msg, bank, data, user_message_id)
 
         else:
             data.update({"bank": "-"})
@@ -3692,31 +3985,143 @@ def setup_client_agent_handlers(bot, user_temp_data):
             data.update({"bank_account_corr": "-"})
             data.update({"BIK": "-"})
             data.update({"INN": "-"})
-            if agent_id not in user_temp_data:
-                user_temp_data[agent_id] = {}
-            user_temp_data[agent_id]['protocol_photos'] = []
-            user_temp_data[agent_id]['contract_data'] = data
+            
+            data['date_ins'] = str(get_next_business_date())
+            data['date_ins_pod'] = str(get_next_business_date())
+            data['status'] = 'Отправлен запрос в страховую'
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            try:
+                from database import save_client_to_db_with_id
+                updated_client_id, updated_data = save_client_to_db_with_id(data)
+                data.update(updated_data)
+                print(data)
+            except Exception as e:
+                print(f"⚠️ Ошибка обновления: {e}")
+            
+            create_fio_data_file(data)
+            
+            # Выбираем шаблон в зависимости от эвакуатора    
+
+            if data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Нет':
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
+                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
+                    [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                    str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
+                    str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
+                    str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
+                    str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
+                    str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
+                    str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
+                    str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
+                    str(data["number_photo"]), str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
+                    str(data["BIK"]), str(data["INN"]), str(data["date_ins"])],
+                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент европротокол.docx",
+                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                    )
+            elif data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Да':
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
+                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}", "{{ Адрес_стоянки }}"],
+                    [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                    str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
+                    str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
+                    str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
+                    str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
+                    str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
+                    str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
+                    str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
+                    str(data["number_photo"]), str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
+                    str(data["BIK"]), str(data["INN"]), str(data["date_ins"]), str(data["address_park"])],
+                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент эвакуатор европротокол.docx",
+                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                    )
+            elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Да':
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", 
+                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}", "{{ Адрес_стоянки }}"],
+                    [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                    str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
+                    str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
+                    str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
+                    str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
+                    str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
+                    str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
+                    str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
+                    str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
+                    str(data["BIK"]), str(data["INN"]), str(data["date_ins"]), str(data["address_park"])],
+                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент эвакуатор по форме ГИБДД.docx",
+                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                    )
+            elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Нет':
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", 
+                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
+                    [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                    str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
+                    str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
+                    str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
+                    str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
+                    str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
+                    str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
+                    str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
+                    str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
+                    str(data["BIK"]), str(data["INN"]), str(data["date_ins"])],
+                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент по форме ГИБДД.docx",
+                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                    )
+            try:
+                with open(f"clients/{data['client_id']}/Документы/Заявление в страховую.docx", 'rb') as document_file:
+                    keyboard = types.InlineKeyboardMarkup()
+                    keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"view_contract_{data['client_id']}"))
+                    if data.get('sobstvenik', '') != 'С начала':
+                        bot.send_document(int(data['user_id']), document_file, reply_markup=keyboard)
+                    else:
+                        bot.send_document(call.message.chat.id, document_file) 
+            except FileNotFoundError:
+                bot.send_message(call.message.chat.id, f"Файл не найден")
 
             keyboard = types.InlineKeyboardMarkup()
-            btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_protocol_photos_upload_agent_{agent_id}")
-            keyboard.add(btn_finish)
-            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_place_choice"))  # Добавлена кнопка
-
-            # Определяем текст в зависимости от типа протокола
-            if data.get("who_dtp", '') == 'Евро-протокол':
-                protocol_text = "Евро-протокола"
-            else:
-                protocol_text = "протокола ГИБДД"
-
+            keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(agent_id, data['client_id'])))
+            keyboard.add(types.InlineKeyboardButton("📋 Получить документы из страховой", callback_data=f"agent_request_act_payment_{data['client_id']}"))
             bot.send_message(
                 call.message.chat.id,
-                f"📸 Прикрепите фото {protocol_text}\n\n"
-                "Фото должны быть четкими, не засвечены.\n"
-                "Можно отправлять по одной фотографии или несколько сразу.\n"
-                "Когда загрузите все фото, нажмите кнопку ниже:",
+                "✅ Заявление в страховую успешно сформировано!",
                 reply_markup=keyboard
             )
-    def bank(message, data, user_message_id, save_message):
+            
+            if agent_id in user_temp_data:
+                user_temp_data.pop(agent_id, None)
+            
+
+    def bank(message, data, user_message_id):
         bot.clear_step_handler_by_chat_id(chat_id=message.chat.id)
         
         try:
@@ -3726,12 +4131,34 @@ def setup_client_agent_handlers(bot, user_temp_data):
             pass
         
         data.update({"bank": message.text})
-        save_step_state(message.from_user.id, 'bank', data)
-        
-        keyboard = create_back_keyboard("back_to_bank")
+        user_temp_data[message.from_user.id]['contract_data'] = data
+        keyboard = create_back_keyboard("back_to_bank_account")  # ✅ Изменена кнопка
         message = bot.send_message(message.chat.id, text="Введите счет получателя, 20 цифр", reply_markup=keyboard)
         user_message_id = message.message_id
-        bot.register_next_step_handler(message, bank_account, data, user_message_id, save_message)
+        bot.register_next_step_handler(message, bank_account, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_requisites_choice")
+    @prevent_double_click(timeout=3.0)
+    def back_to_requisites_choice(call):
+        """Возврат к выбору: вводить реквизиты или нет"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        try:
+            bot.delete_message(call.message.chat.id, user_temp_data[agent_id]['contract_data']['message_id'])
+        except:
+            pass
+        context = "Укажите реквизиты банковского счёта для перечисления денежной компенсации. Они потребуются, если страховая компания не сможет организовать восстановительный ремонт.\n\nЕсли реквизиты не будут указаны, денежные средства будут автоматически направлены в почтовое отделение по месту вашей регистрации."
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("Продолжить", callback_data=f"agent_next_bank"))
+        keyboard.add(types.InlineKeyboardButton("Отказаться от ввода реквизитов", callback_data=f"agent_cancel_bank"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_place_choice"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=context,
+            reply_markup=keyboard
+        )
     @bot.callback_query_handler(func=lambda call: call.data == "back_to_bank")
     @prevent_double_click(timeout=3.0)
     def back_to_bank(call):
@@ -3740,12 +4167,15 @@ def setup_client_agent_handlers(bot, user_temp_data):
         bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
         
         data = user_temp_data[agent_id]['contract_data']
-        
+        try:
+            bot.delete_message(call.message.chat.id, user_temp_data[agent_id]['contract_data']['message_id'])
+        except:
+            pass
         # Возвращаемся к выбору: вводить реквизиты или отказаться
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Продолжить", callback_data=f"agent_next_bank"))
         keyboard.add(types.InlineKeyboardButton("Отказаться от ввода реквизитов", callback_data=f"agent_cancel_bank"))
-        
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_place_choice"))
         context = "Укажите реквизиты банковского счёта для перечисления денежной компенсации. Они потребуются, если страховая компания не сможет организовать восстановительный ремонт.\n\nЕсли реквизиты не будут указаны, денежные средства будут автоматически направлены в почтовое отделение по месту вашей регистрации."
         
         bot.edit_message_text(
@@ -3754,7 +4184,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             text=context,
             reply_markup=keyboard
         )
-    def bank_account(message, data, user_message_id, save_message):
+    def bank_account(message, data, user_message_id):
         bot.clear_step_handler_by_chat_id(chat_id=message.chat.id)
         
         try:
@@ -3765,25 +4195,24 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         if message.text.isdigit() and len(message.text) == 20:
             data.update({"bank_account": message.text})
-            save_step_state(message.from_user.id, 'bank_account', data)
-            
-            keyboard = create_back_keyboard("back_to_bank_account")
+            user_temp_data[message.from_user.id]['contract_data'] = data
+            keyboard = create_back_keyboard("back_to_bank_account_corr")
             message = bot.send_message(
                 message.chat.id,
                 text="Введите корреспондентский счет банка, 20 цифр",
                 reply_markup=keyboard
             )
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, bank_account_corr, data, user_message_id, save_message)
+            bot.register_next_step_handler(message, bank_account_corr, data, user_message_id)
         else:
-            keyboard = create_back_keyboard("back_to_bank")
+            keyboard = create_back_keyboard("back_to_bank_account")
             message = bot.send_message(
                 message.chat.id,
                 text="Неправильный формат, счет должен состоять только из цифр!\nВведите счет получателя, 20 цифр",
                 reply_markup=keyboard
             )
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, bank_account, data, user_message_id, save_message)
+            bot.register_next_step_handler(message, bank_account, data, user_message_id)
 
     @bot.callback_query_handler(func=lambda call: call.data == "back_to_bank_account")
     @prevent_double_click(timeout=3.0)
@@ -3802,10 +4231,8 @@ def setup_client_agent_handlers(bot, user_temp_data):
             reply_markup=keyboard
         )
         
-        # Нужно получить save_message - используем текущий message_id
-        save_message = msg.message_id
-        bot.register_next_step_handler(msg, bank, data, msg.message_id, save_message)
-    def bank_account_corr(message, data, user_message_id, save_message):
+        bot.register_next_step_handler(msg, bank, data, msg.message_id)
+    def bank_account_corr(message, data, user_message_id):
         bot.clear_step_handler_by_chat_id(chat_id=message.chat.id)
         
         try:
@@ -3816,25 +4243,24 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         if message.text.isdigit() and len(message.text) == 20:
             data.update({"bank_account_corr": message.text})
-            save_step_state(message.from_user.id, 'bank_account_corr', data)
-            
-            keyboard = create_back_keyboard("back_to_bank_account_corr")
+            user_temp_data[message.from_user.id]['contract_data'] = data
+            keyboard = create_back_keyboard("back_to_BIK")
             message = bot.send_message(
                 message.chat.id,
                 text="Введите БИК банка, 9 цифр",
                 reply_markup=keyboard
             )
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, BIK, data, user_message_id, save_message)
+            bot.register_next_step_handler(message, BIK, data, user_message_id)
         else:
-            keyboard = create_back_keyboard("back_to_bank_account")
+            keyboard = create_back_keyboard("back_to_bank_account_corr")
             message = bot.send_message(
                 message.chat.id,
                 text="Неправильный формат, счет должен состоять только из цифр!\nВведите корреспондентский счет банка, 20 цифр",
                 reply_markup=keyboard
             )
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, bank_account_corr, data, user_message_id, save_message)
+            bot.register_next_step_handler(message, bank_account_corr, data, user_message_id)
     @bot.callback_query_handler(func=lambda call: call.data == "back_to_bank_account_corr")
     @prevent_double_click(timeout=3.0)
     def back_to_bank_account_corr(call):
@@ -3851,10 +4277,9 @@ def setup_client_agent_handlers(bot, user_temp_data):
             text="Введите счет получателя, 20 цифр",
             reply_markup=keyboard
         )
-        
-        save_message = msg.message_id
-        bot.register_next_step_handler(msg, bank_account, data, msg.message_id, save_message)
-    def BIK(message, data, user_message_id, save_message):
+
+        bot.register_next_step_handler(msg, bank_account, data, msg.message_id)
+    def BIK(message, data, user_message_id):
         bot.clear_step_handler_by_chat_id(chat_id=message.chat.id)
         
         try:
@@ -3865,25 +4290,24 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         if message.text.isdigit() and len(message.text) == 9:
             data.update({"BIK": message.text})
-            save_step_state(message.from_user.id, 'BIK', data)
-            
-            keyboard = create_back_keyboard("back_to_BIK")
+            user_temp_data[message.from_user.id]['contract_data'] = data
+            keyboard = create_back_keyboard("back_to_INN")
             message = bot.send_message(
                 message.chat.id,
                 text="Введите ИНН банка, 10 цифр",
                 reply_markup=keyboard
             )
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, INN, data, user_message_id, save_message)
+            bot.register_next_step_handler(message, INN, data, user_message_id)
         else:
-            keyboard = create_back_keyboard("back_to_bank_account_corr")
+            keyboard = create_back_keyboard("back_to_BIK")
             message = bot.send_message(
                 message.chat.id,
                 text="Неправильный формат, БИК должен состоять только из цифр!\nВведите БИК банка, 9 цифр",
                 reply_markup=keyboard
             )
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, BIK, data, user_message_id, save_message)
+            bot.register_next_step_handler(message, BIK, data, user_message_id)
     @bot.callback_query_handler(func=lambda call: call.data == "back_to_BIK")
     @prevent_double_click(timeout=3.0)
     def back_to_BIK(call):
@@ -3900,57 +4324,180 @@ def setup_client_agent_handlers(bot, user_temp_data):
             text="Введите корреспондентский счет банка, 20 цифр",
             reply_markup=keyboard
         )
-        
-        save_message = msg.message_id
-        bot.register_next_step_handler(msg, bank_account_corr, data, msg.message_id, save_message)
-    def INN(message, data, user_message_id, save_message):
-        client_id = message.from_user.id
-        bot.clear_step_handler_by_chat_id(chat_id=message.chat.id)
-        
+
+        bot.register_next_step_handler(msg, bank_account_corr, data, msg.message_id)
+    def INN(message, data, user_message_id):
+        agent_id = message.from_user.id
         try:
-            bot.delete_message(message.chat.id, save_message)
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
+            bot.delete_message(message.chat.id, user_temp_data[agent_id]['contract_data']['message_id'])
         except:
             pass
-        
+        bot.clear_step_handler_by_chat_id(chat_id=message.chat.id)
         if message.text.isdigit() and len(message.text) == 10:
             data.update({"INN": message.text})
-            save_step_state(client_id, 'INN', data)
 
-            # Инициализируем хранилище для фото протокола
-            if client_id not in user_temp_data:
-                user_temp_data[client_id] = {}
-            user_temp_data[client_id]['protocol_photos'] = []
-            user_temp_data[client_id]['contract_data'] = data
+            data['date_ins'] = str(get_next_business_date())
+            data['date_ins_pod'] = str(get_next_business_date())
+            data['status'] = 'Отправлен запрос в страховую'
+
+            try:
+                from database import save_client_to_db_with_id
+                updated_client_id, updated_data = save_client_to_db_with_id(data)
+                data.update(updated_data)
+                print(data)
+            except Exception as e:
+                print(f"⚠️ Ошибка обновления: {e}")
+            
+            create_fio_data_file(data)
+            
+            # Выбираем шаблон в зависимости от эвакуатора    
+
+            if data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Нет':
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
+                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
+                    [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                    str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
+                    str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
+                    str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
+                    str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
+                    str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
+                    str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
+                    str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
+                    str(data["number_photo"]), str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
+                    str(data["BIK"]), str(data["INN"]), str(data["date_ins"])],
+                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент европротокол.docx",
+                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                    )
+            elif data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Да':
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
+                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}", "{{ Адрес_стоянки }}"],
+                    [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                    str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
+                    str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
+                    str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
+                    str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
+                    str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
+                    str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
+                    str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
+                    str(data["number_photo"]), str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
+                    str(data["BIK"]), str(data["INN"]), str(data["date_ins"]), str(data["address_park"])],
+                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент эвакуатор европротокол.docx",
+                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                    )
+            elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Да':
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", 
+                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}", "{{ Адрес_стоянки }}"],
+                    [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                    str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
+                    str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
+                    str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
+                    str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
+                    str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
+                    str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
+                    str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
+                    str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
+                    str(data["BIK"]), str(data["INN"]), str(data["date_ins"]), str(data["address_park"])],
+                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент эвакуатор по форме ГИБДД.docx",
+                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                    )
+            elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Нет':
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", 
+                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
+                    [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
+                    str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
+                    str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
+                    str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
+                    str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
+                    str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
+                    str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
+                    str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
+                    str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
+                    str(data["BIK"]), str(data["INN"]), str(data["date_ins"])],
+                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент по форме ГИБДД.docx",
+                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                    )
+            try:
+                with open(f"clients/{data['client_id']}/Документы/Заявление в страховую.docx", 'rb') as document_file:
+                    keyboard = types.InlineKeyboardMarkup()
+                    keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
+                    if data.get('sobstvenik', '') != 'С начала':
+                        bot.send_document(int(data['user_id']), document_file, reply_markup=keyboard)
+                    else:
+                        bot.send_document(message.chat.id, document_file)  
+            except FileNotFoundError:
+                bot.send_message(message.chat.id, f"Файл не найден")
 
             keyboard = types.InlineKeyboardMarkup()
-            btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_protocol_photos_upload_agent_{client_id}")
-            keyboard.add(btn_finish)
-
-            # Определяем текст в зависимости от типа протокола
-            if data.get("who_dtp", '') == 'Евро-протокол':
-                protocol_text = "Евро-протокола"
-            else:
-                protocol_text = "протокола ГИБДД"
-
+            keyboard.add(types.InlineKeyboardButton("📋 Получить документы из страховой", callback_data=f"agent_request_act_payment_{data['client_id']}"))
+            keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(agent_id, data['client_id'])))    
             bot.send_message(
                 message.chat.id,
-                f"📸 Прикрепите фото {protocol_text}\n\n"
-                "Фото должны быть четкими, не засвечены.\n"
-                "Можно отправлять по одной фотографии или несколько сразу.\n"
-                "Когда загрузите все фото, нажмите кнопку ниже:",
+                "✅ Заявление в страховую успешно сформировано!",
                 reply_markup=keyboard
             )
+            
+            if agent_id in user_temp_data:
+                user_temp_data.pop(agent_id, None)
+            
         else:
-            keyboard = create_back_keyboard("back_to_BIK")
+            keyboard = create_back_keyboard("back_to_INN")
             message = bot.send_message(
                 message.chat.id,
                 text="Неправильный формат, ИНН должен состоять только из цифр!\nВведите ИНН банка, 10 цифр",
                 reply_markup=keyboard
             )
             user_message_id = message.message_id
-            bot.register_next_step_handler(message, INN, data, user_message_id, save_message)
+            bot.register_next_step_handler(message, INN, data, user_message_id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_INN")
+    @prevent_double_click(timeout=3.0)
+    def back_to_INN(call):
+        """Возврат к вводу ИНН"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        data = user_temp_data[agent_id]['contract_data']
+        
+        keyboard = create_back_keyboard("back_to_BIK")
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите БИК банка, 9 цифр",
+            reply_markup=keyboard
+        )
+
+        bot.register_next_step_handler(msg, BIK, data, msg.message_id)
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith('finish_protocol_photos_upload_agent_'))
     @prevent_double_click(timeout=3.0)
     def finish_protocol_photos_upload_callback(call):
@@ -3971,7 +4518,9 @@ def setup_client_agent_handlers(bot, user_temp_data):
             if len(photos) == 0:
                 keyboard = types.InlineKeyboardMarkup()
                 btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_protocol_photos_upload_agent_{agent_id}")
+                btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_doc_choice")  # ДОБАВЛЕНО
                 keyboard.add(btn_finish)
+                keyboard.add(btn_back)
                 
                 protocol_type = "Евро-протокола" if data.get("who_dtp", '') == 'Евро-протокол' else "протокола ГИБДД"
                 
@@ -4013,7 +4562,9 @@ def setup_client_agent_handlers(bot, user_temp_data):
 
             keyboard = types.InlineKeyboardMarkup()
             btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_dtp_photos_upload_agent_{agent_id}")
+            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_protocol_photos")  # ДОБАВЛЕНО
             keyboard.add(btn_finish)
+            keyboard.add(btn_back)
 
             bot.send_message(
                 call.message.chat.id,
@@ -4027,6 +4578,78 @@ def setup_client_agent_handlers(bot, user_temp_data):
         except Exception as e:
             print(f"Ошибка при сохранении фото протокола: {e}")
             bot.send_message(call.message.chat.id, "❌ Произошла ошибка при сохранении фото.")
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_requisites_or_protocol")
+    @prevent_double_click(timeout=3.0)
+    def back_to_requisites_or_protocol(call):
+        """Возврат к реквизитам или протоколу"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        data = user_temp_data[agent_id]['contract_data']
+        
+        # Если реквизиты не заполнены (БИК = "-"), возвращаемся к выбору
+        if data.get('BIK') == '-':
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("Продолжить", callback_data=f"agent_next_bank"))
+            keyboard.add(types.InlineKeyboardButton("Отказаться от ввода реквизитов", callback_data=f"agent_cancel_bank"))
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_number_photo_or_health"))
+            
+            context = "Укажите реквизиты банковского счёта для перечисления денежной компенсации. Они потребуются, если страховая компания не сможет организовать восстановительный ремонт.\n\nЕсли реквизиты не будут указаны, денежные средства будут автоматически направлены в почтовое отделение по месту вашей регистрации."
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=context,
+                reply_markup=keyboard
+            )
+        else:
+            # Если реквизиты заполнены, возвращаемся к ИНН
+            keyboard = create_back_keyboard("back_to_BIK")
+            msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Введите ИНН банка, 10 цифр",
+                reply_markup=keyboard
+            )
+            
+            save_message = msg.message_id
+            bot.register_next_step_handler(msg, INN, data, msg.message_id, save_message)
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_protocol_photos")
+    @prevent_double_click(timeout=3.0)
+    def back_to_protocol_photos(call):
+        """Возврат к загрузке фото протокола"""
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        
+        data = user_temp_data[agent_id]['contract_data']
+        
+        # Инициализируем хранилище для фото протокола заново
+        if agent_id not in user_temp_data:
+            user_temp_data[agent_id] = {}
+        user_temp_data[agent_id]['protocol_photos'] = []
+        user_temp_data[agent_id]['contract_data'] = data
+
+        keyboard = types.InlineKeyboardMarkup()
+        btn_finish = types.InlineKeyboardButton("✅ Завершить загрузку", callback_data=f"finish_protocol_photos_upload_agent_{agent_id}")
+        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_doc_choice")
+        keyboard.add(btn_finish)
+        keyboard.add(btn_back)
+
+        # Определяем текст в зависимости от типа протокола
+        if data.get("who_dtp", '') == 'Евро-протокол':
+            protocol_text = "Евро-протокола"
+        else:
+            protocol_text = "протокола ГИБДД"
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"📸 Прикрепите фото {protocol_text}\n\n"
+                "Фото должны быть четкими, не засвечены.\n"
+                "Можно отправлять по одной фотографии или несколько сразу.\n"
+                "Когда загрузите все фото, нажмите кнопку ниже:",
+            reply_markup=keyboard
+        )
     @bot.callback_query_handler(func=lambda call: call.data.startswith('finish_dtp_photos_upload_agent_'))
     @prevent_double_click(timeout=3.0)
     def finish_dtp_photos_upload_callback(call):
@@ -4067,7 +4690,6 @@ def setup_client_agent_handlers(bot, user_temp_data):
             # Очищаем временные данные
             del user_temp_data[agent_id]['dtp_photos']
             
-            bot.send_message(call.message.chat.id, f"✅ Фото ДТП успешно сохранены! ({len(photos)} фото)")
             fields_to_remove = [
                 'pts_timer', 'dkp_timer', 'protocol_timer', 'dtp_timer', 'dov_timer', 'dtp_cabinet_timer',
                 'pts_photos', 'dkp_photos', 'protocol_photos', 'dtp_photos', 'dtp_photos_cabinet', 'doverennost_photos',
@@ -4078,165 +4700,81 @@ def setup_client_agent_handlers(bot, user_temp_data):
             for field in fields_to_remove:
                 data.pop(field, None)
 
-            # ПРОДОЛЖАЕМ с логикой формирования заявления
-            if data['sobstvenik'] != 'С начала':
-                data['date_ins'] = str(get_next_business_date())
-                data['date_ins_pod'] = str(get_next_business_date())
-                data['status'] = 'Отправлен запрос в страховую'
-
-                try:
-                    from database import save_client_to_db_with_id
-                    updated_client_id, updated_data = save_client_to_db_with_id(data)
-                    data.update(updated_data)
-                    print(data)
-                except Exception as e:
-                    print(f"⚠️ Ошибка обновления: {e}")
-                
-                create_fio_data_file(data)
-                
-                # Выбираем шаблон в зависимости от эвакуатора    
-
-                if data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Нет':
-                    replace_words_in_word(
-                        ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
-                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
-                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
-                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
-                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
-                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
-                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
-                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
-                        [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
-                        str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
-                        str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
-                        str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
-                        str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
-                        str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
-                        str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
-                        str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
-                        str(data["number_photo"]), str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
-                        str(data["BIK"]), str(data["INN"]), str(data["date_ins"])],
-                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент европротокол.docx",
-                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
-                        )
-                elif data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Да':
-                    replace_words_in_word(
-                        ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
-                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
-                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
-                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
-                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
-                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
-                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
-                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}", "{{ Адрес_стоянки }}"],
-                        [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
-                        str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
-                        str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
-                        str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
-                        str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
-                        str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
-                        str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
-                        str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
-                        str(data["number_photo"]), str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
-                        str(data["BIK"]), str(data["INN"]), str(data["date_ins"]), str(data["address_park"])],
-                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент эвакуатор европротокол.docx",
-                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
-                        )
-                elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Да':
-                    replace_words_in_word(
-                        ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
-                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
-                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
-                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
-                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
-                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
-                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", 
-                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}", "{{ Адрес_стоянки }}"],
-                        [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
-                        str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
-                        str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
-                        str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
-                        str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
-                        str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
-                        str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
-                        str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
-                        str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
-                        str(data["BIK"]), str(data["INN"]), str(data["date_ins"]), str(data["address_park"])],
-                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент эвакуатор по форме ГИБДД.docx",
-                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
-                        )
-                elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Нет':
-                    replace_words_in_word(
-                        ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
-                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
-                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
-                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
-                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
-                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
-                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", 
-                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
-                        [str(data["insurance"]), str(data["fio"]), str(data["seria_pasport"]), str(data["number_pasport"]),
-                        str(data["date_of_birth"]), str(data["where_pasport"]), str(data["when_pasport"]),
-                        str(data["city_birth"]), str(data["index_postal"]), str(data["address"]), str(data["docs"]), 
-                        str(data["seria_docs"]), str(data["number_docs"]), str(data["data_docs"]), 
-                        str(data["dkp"]), str(data["marks"]), str(data["year_auto"]),
-                        str(data["car_number"]), str(data["date_dtp"]), str(data["time_dtp"]),
-                        str(data["address_dtp"]), str(data["fio_culp"]), str(data["marks_culp"]), str(data["seria_insurance"]),
-                        str(data["number_insurance"]), str(data["date_insurance"]), str(data["city"]), str(data["place"]),
-                        str(data["bank"]), str(data["bank_account"]), str(data["bank_account_corr"]),
-                        str(data["BIK"]), str(data["INN"]), str(data["date_ins"])],
-                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент по форме ГИБДД.docx",
-                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
-                        )
-                try:
-                    with open(f"clients/{data['client_id']}/Документы/Заявление в страховую.docx", 'rb') as document_file:
-                        keyboard = types.InlineKeyboardMarkup()
-                        keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
-                        bot.send_document(data['user_id'], document_file, reply_markup=keyboard)   
-                except FileNotFoundError:
-                    bot.send_message(call.message.chat.id, f"Файл не найден")
-
-                keyboard = types.InlineKeyboardMarkup()
-                keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"agent_view_contract_{data['client_id']}"))    
-                bot.send_message(
-                    call.message.chat.id,
-                    "✅ Заявление в страховую успешно сформировано!",
-                    reply_markup=keyboard
-                )
-                
-                if agent_id in user_temp_data:
-                    user_temp_data.pop(agent_id, None)
-            else:
-                
-                try:
-                    from database import save_client_to_db_with_id
-                    updated_client_id, updated_data = save_client_to_db_with_id(data)
-                    data.update(updated_data)
-                    print(data)
-                except Exception as e:
-                    print(f"⚠️ Ошибка обновления: {e}")
-                
-                create_fio_data_file(data)
-                keyboard = types.InlineKeyboardMarkup()
-                keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"view_contract_{data['client_id']}"))    
-                bot.send_message(
-                    data['user_id'],
-                    "Для формирования заявления в страховую загрузите доверенность в личном кабинете",
-                    reply_markup=keyboard
-                )
-                keyboard = types.InlineKeyboardMarkup()
-                keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"agent_view_contract_{data['client_id']}")) 
-                bot.send_message(
-                    agent_id,
-                    "Для формирования заявления в страховую клиент должен загрузить доверенность в личном кабинете",
-                    reply_markup=keyboard
-                )
-                if agent_id in user_temp_data:
-                    user_temp_data.pop(agent_id, None)
+            try:
+                from database import save_client_to_db_with_id
+                updated_client_id, updated_data = save_client_to_db_with_id(data)
+                data.update(updated_data)
+                print(data)
+            except Exception as e:
+                print(f"⚠️ Ошибка обновления: {e}")
+            client_id = data['client_id']
+            keyboard = types.InlineKeyboardMarkup()
+            if data['accident'] == 'ДТП':
+                if data['sobstvenik'] != 'С начала':
+                    keyboard.add(types.InlineKeyboardButton("Заполнить заявление в страховую ", callback_data=f"dtp_continue_documents_{client_id}"))
+                keyboard.add(types.InlineKeyboardButton("📋 Запрос о выдаче акта и расчета", callback_data=f"agent_request_act_payment_{data['client_id']}"))  
+                keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(agent_id, data['client_id'])))
             
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text="Выберите из следующих вариантов",
+                    reply_markup=keyboard
+                )
+            elif data['accident'] == 'Подал заявление':
+                keyboard.add(types.InlineKeyboardButton("Продолжить", callback_data=f"agent_podal_continue_documents_{client_id}"))
+                keyboard.add(types.InlineKeyboardButton("📋 Запрос о выдаче акта и расчета", callback_data=f"agent_request_act_payment_{data['client_id']}"))  
+                keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(agent_id, data['client_id'])))
+            
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text="Готовы продолжить заполнение?",
+                    reply_markup=keyboard
+                )
+            elif data['accident'] == 'Нет ОСАГО':
+                keyboard.add(types.InlineKeyboardButton("📄 Заявление о выдаче из ГИБДД", callback_data=f"agent_net_osago_continue_documents_{client_id}"))
+                keyboard.add(types.InlineKeyboardButton("📋 Запрос о выдаче акта и расчета", callback_data=f"agent_request_act_payment_{data['client_id']}"))  
+                keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(agent_id, data['client_id'])))
+            
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text="Готовы продолжить заполнение?",
+                    reply_markup=keyboard
+                )    
+            else:
+                keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(agent_id, data['client_id'])))
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text="Данные сохранены",
+                    reply_markup=keyboard
+                )
         except Exception as e:
             print(f"Ошибка при сохранении фото ДТП: {e}")
             bot.send_message(call.message.chat.id, "❌ Произошла ошибка при сохранении фото.")
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("agent_podal_continue_documents_"))
+    @prevent_double_click(timeout=3.0)
+    def agent_podal_continue_documents(call):
+        """Заявление на доп осмотр от агента"""
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        agent_id = call.from_user.id
+        try:
+            bot.delete_message(call.message.chat.id, user_temp_data[agent_id]['message_id'])
+        except:
+            pass
+        client_id = call.data.replace("agent_podal_continue_documents_", "")
+        keyboard = types.InlineKeyboardMarkup()
+        btn_yes = types.InlineKeyboardButton("💰 На выплату", callback_data=f"podal_viplata_{client_id}")
+        btn_no = types.InlineKeyboardButton("🛠️ На ремонт", callback_data=f"podal_rem_{client_id}")
+        keyboard.add(btn_yes, btn_no)
+        keyboard.add(types.InlineKeyboardButton("📄 Вернуться к договору", callback_data=get_contract_callback(agent_id, client_id)))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Было подано заявление на выплату или на ремонт?",
+            reply_markup = keyboard
+        )
+        
     @bot.callback_query_handler(func=lambda call: call.data.startswith("agent_dop_osm_"))
     @prevent_double_click(timeout=3.0)
     def callback_agent_dop_osm(call):
@@ -4498,9 +5036,6 @@ def setup_client_agent_handlers(bot, user_temp_data):
             data['time_sto_main'] = message.text.strip()
             data['dop_osm'] = "Yes"
             data['data_dop_osm'] = datetime.now().strftime("%d.%m.%Y")
-
-            if data.get('status', '') not in ['Ожидание претензии', 'Составлена претензия', 'Составлено заявление к Фин.омбудсмену', 'Деликт', 'Завершен', 'Составлено исковое заявление']: 
-                data.update({"status": "Подано заявление на дополнительный осмотр"})
             
             # Обновляем в БД
             try:
@@ -4517,42 +5052,62 @@ def setup_client_agent_handlers(bot, user_temp_data):
             
             if data.get("N_dov_not", '') != '':
                 template_path = "Шаблоны/1. ДТП/1. На ремонт/4. Заявление о проведении доп осмотра/4. Заявление о проведении дополнительного осмотра автомобиля представитель.docx"
-                output_filename = "4. Заявление о проведении дополнительного осмотра автомобиля представитель.docx"
+                output_filename = "Заявление о проведении дополнительного осмотра автомобиля представитель.docx"
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
+                    "{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
+                    "{{ Паспорт_когда }}", "{{ NДоверенности }}", "{{ Дата_доверенности }}", "{{ Представитель }}", 
+                    "{{ Nакта_осмотра }}", "{{ Дата }}", "{{ Дата_ДТП }}", "{{ Телефон_представителя }}",
+                    "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Дата_осмотра }}", "{{ Дата_свое_СТО }}", 
+                    "{{ Время_свое_СТО }}", "{{ Адрес_свое_СТО }}", "{{ Телефон }}", "{{ Дата_заявления_доп_осмотр }}"],
+                    [str(data.get("insurance", "")), str(data.get("city", "")), str(data.get("fio", "")), 
+                    str(data.get("date_of_birth", "")), str(data.get("seria_pasport", "")), 
+                    str(data.get("number_pasport", "")), str(data.get("where_pasport", "")), 
+                    str(data.get("when_pasport", "")), str(data.get("N_dov_not", "")), str(data.get("data_dov_not", "")), str(data.get("fio_not", "")), 
+                    str(data.get("number_not", "")), str(data.get("Na_ins", "")), str(data.get("date_ins", "")), str(data.get("date_dtp", "")), 
+                    str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
+                    str(data.get("date_Na_ins", "")), str(data.get("date_sto_main", "")), 
+                    str(data.get("time_sto_main", "")), str(data.get("address_sto_main", "")), 
+                    str(data.get("number", "")), str(data.get("data_dop_osm", ""))],
+                    template_path,
+                    f"clients/{client_id}/Документы/{output_filename}"
+                )
             else:
                 template_path = "Шаблоны/1. ДТП/1. На ремонт/4. Заявление о проведении доп осмотра/4. Заявление о проведении дополнительного осмотра автомобиля.docx"
-                output_filename = "4. Заявление о проведении дополнительного осмотра автомобиля.docx"
+                output_filename = "Заявление о проведении дополнительного осмотра автомобиля.docx"
             
-            replace_words_in_word(
-                ["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
-                "{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
-                "{{ Паспорт_когда }}", "{{ Nакта_осмотра }}", "{{ Дата }}", "{{ Дата_ДТП }}", 
-                "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Дата_осмотра }}", "{{ Дата_свое_СТО }}", 
-                "{{ Время_свое_СТО }}", "{{ Адрес_свое_СТО }}", "{{ Телефон }}", "{{ Дата_заявления_доп_осмотр }}"],
-                [str(data.get("insurance", "")), str(data.get("city", "")), str(data.get("fio", "")), 
-                str(data.get("date_of_birth", "")), str(data.get("seria_pasport", "")), 
-                str(data.get("number_pasport", "")), str(data.get("where_pasport", "")), 
-                str(data.get("when_pasport", "")), str(data.get("Na_ins", "")), 
-                str(data.get("date_ins", "")), str(data.get("date_dtp", "")), 
-                str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
-                str(data.get("date_Na_ins", "")), str(data.get("date_sto_main", "")), 
-                str(data.get("time_sto_main", "")), str(data.get("address_sto_main", "")), 
-                str(data.get("number", "")), str(data.get("data_dop_osm", ""))],
-                template_path,
-                f"clients/{client_id}/Документы/{output_filename}"
-            )
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", 
+                    "{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
+                    "{{ Паспорт_когда }}", "{{ Nакта_осмотра }}", "{{ Дата }}", "{{ Дата_ДТП }}", 
+                    "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Дата_осмотра }}", "{{ Дата_свое_СТО }}", 
+                    "{{ Время_свое_СТО }}", "{{ Адрес_свое_СТО }}", "{{ Телефон }}", "{{ Дата_заявления_доп_осмотр }}"],
+                    [str(data.get("insurance", "")), str(data.get("city", "")), str(data.get("fio", "")), 
+                    str(data.get("date_of_birth", "")), str(data.get("seria_pasport", "")), 
+                    str(data.get("number_pasport", "")), str(data.get("where_pasport", "")), 
+                    str(data.get("when_pasport", "")), str(data.get("Na_ins", "")), 
+                    str(data.get("date_ins", "")), str(data.get("date_dtp", "")), 
+                    str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
+                    str(data.get("date_Na_ins", "")), str(data.get("date_sto_main", "")), 
+                    str(data.get("time_sto_main", "")), str(data.get("address_sto_main", "")), 
+                    str(data.get("number", "")), str(data.get("data_dop_osm", ""))],
+                    template_path,
+                    f"clients/{client_id}/Документы/{output_filename}"
+                    )
             
             # Отправляем документ агенту
             try:
                 with open(f"clients/{client_id}/Документы/{output_filename}", 'rb') as doc:
                     keyboard = types.InlineKeyboardMarkup()
-                    keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+                    keyboard.add(types.InlineKeyboardButton("📋 Запрос о выдаче акта и расчета", callback_data=f"agent_request_act_payment_{data['client_id']}"))  
+                    keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(agent_id, data['client_id'])))
                     bot.send_document(message.chat.id, doc, caption="📋 Заявление на дополнительный осмотр", reply_markup=keyboard)
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
             
             # Уведомляем клиента
             client_user_id = user_temp_data[agent_id].get('client_user_id')
-            if client_user_id:
+            if client_user_id and str(client_user_id) != '8572367590':
                 try:
                     keyboard = types.InlineKeyboardMarkup()
                     keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
@@ -4604,32 +5159,232 @@ def setup_client_agent_handlers(bot, user_temp_data):
         if agent_id not in user_temp_data:
             user_temp_data[agent_id] = {}
         
-        user_temp_data[agent_id]['answer_insurance_data'] = data
+        user_temp_data[agent_id] = data
         user_temp_data[agent_id]['client_id'] = client_id
         user_temp_data[agent_id]['client_user_id'] = contract.get('user_id')
         
         keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("✅ Да", callback_data="agent_answer_yes"))
-        keyboard.add(types.InlineKeyboardButton("❌ Нет", callback_data="agent_answer_no"))
+        keyboard.add(types.InlineKeyboardButton("💰 Получена выплата", callback_data="agent_answer_payment"))
+        keyboard.add(types.InlineKeyboardButton("🔧 Получено направление на ремонт", callback_data="agent_answer_repair"))
         keyboard.add(types.InlineKeyboardButton("📋 У виновника ДТП Нет ОСАГО", callback_data=f"NoOsago_prod_{client_id}"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=get_contract_callback(agent_id, client_id)))
+        
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="Есть ли ответ от страховой?",
+            text="Что получено от страховой?",
             reply_markup=keyboard
         )
 
-
-    @bot.callback_query_handler(func=lambda call: call.data == "agent_answer_yes")
+    @bot.callback_query_handler(func=lambda call: call.data == "agent_answer_payment")
     @prevent_double_click(timeout=3.0)
-    def agent_answer_yes(call):
-        """Агент подтвердил ответ от страховой"""
+    def agent_answer_payment(call):
+        """Получена выплата - запрашиваем сумму"""
+        agent_id = call.from_user.id
+        client_id = user_temp_data[agent_id]['client_id']
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"agent_answer_insurance_{client_id}"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="💰 Введите сумму выплаты по ОСАГО (только число):",
+            reply_markup=keyboard
+        )
+        
+        bot.register_next_step_handler(call.message, process_insurance_payment_amount, agent_id, call.message.message_id)
+
+
+    def process_insurance_payment_amount(message, agent_id, prev_message_id):
+        """Обработка суммы выплаты от страховой"""
+        try:
+            bot.delete_message(message.chat.id, prev_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        
+        try:
+            amount = float(message.text.strip().replace(',', '.'))
+        except ValueError:
+            msg = bot.send_message(message.chat.id, "❌ Введите корректное число:")
+            bot.register_next_step_handler(msg, process_insurance_payment_amount, agent_id, msg.message_id)
+            return
+        
+        client_id = user_temp_data[agent_id]['client_id']
+        
+        # Получаем текущее значение coin_osago
+        from database import get_client_from_db_by_client_id
+        client_data = get_client_from_db_by_client_id(client_id)
+        
+        try:
+            data = json.loads(client_data.get('data_json', '{}'))
+        except:
+            data = client_data
+        try:
+            # Получаем текущую сумму (из data_json ИЛИ из основного поля)
+            current_osago = float(data.get('coin_osago', 0))
+            if current_osago == 0 and data.get('coin_osago'):
+                try:
+                    current_osago = float(data.get('coin_osago', 0))
+                except:
+                    current_osago = 0
+                    
+        except Exception as e:
+            print(f"Ошибка получения текущей суммы: {e}")
+            current_osago = 0
+        
+        # Прибавляем новую сумму
+        new_total = current_osago + amount
+        print(f"DEBUG: current_osago={current_osago}, amount={amount}, new_total={new_total}")
+        # Обновляем в базе
+        data['coin_osago'] = str(new_total)
+        
+        try:
+            from database import save_client_to_db_with_id
+            updated_client_id, updated_data = save_client_to_db_with_id(data)
+            client_data.update(updated_data)
+            print(client_data)
+        except Exception as e:
+            print(f"⚠️ Ошибка обновления: {e}")
+        
+        # Сохраняем сумму для загрузки квитанции
+        user_temp_data[agent_id]['insurance_osago_amount'] = amount
+        user_temp_data[agent_id]['insurance_osago_total'] = new_total
+        
+        # Инициализируем сессию загрузки квитанции
+        chat_id = message.chat.id
+        upload_sessions[chat_id] = {
+            'client_id': agent_id,
+            'photos': [],
+            'message_id': None,
+            'number_id': client_id,
+            'type': 'insurance_payment'  # Маркер для различения типа загрузки
+        }
+        
+        msg = bot.send_message(
+            chat_id,
+            f"✅ Добавлено: {amount} руб.\n"
+            f"💰 Общая сумма выплат: {new_total} руб.\n\n"
+            f"📸 Теперь загрузите квитанцию (одну или несколько фотографий):",
+            reply_markup=create_upload_keyboard_insurance()
+        )
+        
+        upload_sessions[chat_id]['message_id'] = msg.message_id
+
+
+    def create_upload_keyboard_insurance():
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("✅ Завершить загрузку", callback_data="finish_upload_insurance_payment"))
+        return keyboard
+
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'finish_upload_insurance_payment')
+    def handle_finish_upload_insurance_payment(call):
+        """Завершение загрузки квитанции после выплаты от страховой"""
+        chat_id = call.message.chat.id
+        
+        if chat_id not in upload_sessions or not upload_sessions[chat_id]['photos']:
+            bot.answer_callback_query(call.id, "❌ Нет загруженных фото")
+            return
+        
+        session = upload_sessions[chat_id]
+        
+        try:
+            # Определяем имя файла
+            client_id = session['number_id']
+            docs_dir = f"clients/{client_id}/Документы"
+            
+            # Проверяем существующие квитанции
+            counter = 1
+            filename = "Квитанция.pdf"
+            while os.path.exists(os.path.join(docs_dir, filename)):
+                counter += 1
+                filename = f"Квитанция{counter}.pdf"
+            
+            pdf_path = os.path.join(docs_dir, filename)
+            
+            # Создаем PDF из фото
+            create_kvitancia_pdf(session['photos'], session['number_id'], pdf_path)
+            try:
+            # Удаляем сообщение с кнопкой
+                bot.delete_message(chat_id, session['message_id'])
+            except:
+                pass
+            
+            user_id = session['client_id']
+            osago_amount = user_temp_data.get(user_id, {}).get('insurance_osago_amount', 0)
+            osago_total = user_temp_data.get(user_id, {}).get('insurance_osago_total', 0)
+
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("Да", callback_data="agent_docs_ins_yes"))
+            keyboard.add(types.InlineKeyboardButton("Нет", callback_data="agent_docs_ins_no"))
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"agent_answer_insurance_{client_id}"))
+
+            bot.send_message(
+                chat_id,
+                f"✅ Квитанция успешно сохранена как '{filename}'!\n"
+                f"💰 Добавлено: {osago_amount} руб.\n"
+                f"💰 Итого выплат: {osago_total} руб.\n"
+                f"📸 Загружено фото: {len(session['photos'])}\n\n"
+                f"Необходимо заявление на выдачу документов из страховой?",
+                reply_markup = keyboard
+            )
+            
+            # Очищаем сессию
+            del upload_sessions[chat_id]
+            if user_id in user_temp_data:
+                user_temp_data[user_id].pop('insurance_osago_amount', None)
+                user_temp_data[user_id].pop('insurance_osago_total', None)
+            
+        except Exception as e:
+            print(f"Error creating PDF: {e}")
+            bot.send_message(chat_id, "❌ Ошибка при создании PDF файла")
+        
+        bot.answer_callback_query(call.id)
+
+    def create_kvitancia_pdf(photo_paths, client_id, pdf_path=None):
+        """Создает PDF файл из загруженных фото"""
+        # Создаем папки если не существуют
+        docs_path = f"clients/{client_id}/Документы"
+        os.makedirs(docs_path, exist_ok=True)
+        
+        if pdf_path is None:
+            pdf_path = os.path.join(docs_path, "Квитанция.pdf")
+        
+        # Конвертируем фото в PDF
+        images = []
+        for photo_path in photo_paths:
+            try:
+                img = Image.open(photo_path)
+                # Конвертируем в RGB если нужно
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                images.append(img)
+            except Exception as e:
+                print(f"Error opening image {photo_path}: {e}")
+        
+        if images:
+            # Сохраняем как PDF
+            images[0].save(
+                pdf_path, 
+                "PDF", 
+                resolution=100.0, 
+                save_all=True, 
+                append_images=images[1:]
+            )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "agent_answer_repair")
+    @prevent_double_click(timeout=3.0)
+    def agent_answer_repair(call):
+        """Получено направление на ремонт - сразу к вопросу о заявлении"""
         agent_id = call.from_user.id
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Да", callback_data="agent_docs_ins_yes"))
         keyboard.add(types.InlineKeyboardButton("Нет", callback_data="agent_docs_ins_no"))
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_answer_insurance_question"))  # Добавлена кнопка
+        client_id = user_temp_data[agent_id]['client_id']
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"agent_answer_insurance_{client_id}"))
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -4638,45 +5393,28 @@ def setup_client_agent_handlers(bot, user_temp_data):
             reply_markup=keyboard
         )
 
-
-    @bot.callback_query_handler(func=lambda call: call.data == "agent_answer_no")
-    @prevent_double_click(timeout=3.0)
-    def agent_answer_no(call):
-        """Агент сообщил об отсутствии ответа"""
-        agent_id = call.from_user.id
-        
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("Да", callback_data="agent_docs_ins_yes"))
-        keyboard.add(types.InlineKeyboardButton("Нет", callback_data="agent_docs_ins_no"))
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_answer_insurance_question"))  # Добавлена кнопка
-        
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Необходимо заявление на выдачу документов из страховой?",
-            reply_markup=keyboard
-        )
+    
 
     @bot.callback_query_handler(func=lambda call: call.data == "back_to_answer_insurance_question")
     @prevent_double_click(timeout=3.0)
     def back_to_answer_insurance_question(call):
-        """Возврат к вопросу о наличии ответа от страховой"""
+        """Возврат к вопросу о том, что получено от страховой"""
         agent_id = call.from_user.id
         bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
         
-        data = user_temp_data[agent_id]['answer_insurance_data']
+        data = user_temp_data[agent_id]
         client_id = user_temp_data[agent_id]['client_id']
         
         keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("✅ Да", callback_data="agent_answer_yes"))
-        keyboard.add(types.InlineKeyboardButton("❌ Нет", callback_data="agent_answer_no"))
+        keyboard.add(types.InlineKeyboardButton("💰 Получена выплата", callback_data="agent_answer_payment"))
+        keyboard.add(types.InlineKeyboardButton("🔧 Получено направление на ремонт", callback_data="agent_answer_repair"))
         keyboard.add(types.InlineKeyboardButton("📋 У виновника ДТП Нет ОСАГО", callback_data=f"NoOsago_prod_{client_id}"))
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="callback_start"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=get_contract_callback(agent_id, client_id))) 
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="Есть ли ответ от страховой?",
+            text="Выберите из предложенных вариантов",
             reply_markup=keyboard
         )
     @bot.callback_query_handler(func=lambda call: call.data in ["agent_docs_ins_yes", "agent_docs_ins_no"])
@@ -4692,6 +5430,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             keyboard.add(types.InlineKeyboardButton("2", callback_data="agent_vibor2"))
             keyboard.add(types.InlineKeyboardButton("3", callback_data="agent_vibor3"))
             keyboard.add(types.InlineKeyboardButton("4", callback_data="agent_vibor4"))
+            keyboard.add(types.InlineKeyboardButton("5", callback_data="agent_vibor5"))
             keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_answer_insurance_question"))  # Добавлена кнопка
             
             bot.edit_message_text(
@@ -4700,15 +5439,18 @@ def setup_client_agent_handlers(bot, user_temp_data):
                 text="Выберите из предложенных вариантов:\n\n"
                     "1) Страховая компания без согласования произвела выплату. Направление на ремонт не выдавалось.\n"
                     "2) Страховая компания выдала направление на ремонт, СТО отказала.\n"
-                    "3) Страховая выдала направление на ремонт и ремонт произведен.\n"
-                    "4) Страховая компания выдала направление на ремонт, СТО дальше 50 км.",
+                    "3) У страховой компании нет СТО.\n"
+                    "4) Страховая компания выдала направление на ремонт, СТО дальше 50 км.\n"
+                    "5) Страховая компания не организовала ремонт.",
                 reply_markup=keyboard
             )
         else:
             # С заявлением на выдачу документов
-            data = user_temp_data[agent_id]['answer_insurance_data']
-            
-            data['status'] = "Подано заявление на выдачу документов из страховой"
+            data = user_temp_data[agent_id]
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
             
             try:
                 from database import save_client_to_db_with_id
@@ -4724,28 +5466,48 @@ def setup_client_agent_handlers(bot, user_temp_data):
             if data.get("N_dov_not", '') != '':
                 template_path = "Шаблоны/1. ДТП/1. На ремонт/5. Запрос в страховую о выдаче акта и расчета/5. Запрос в страховую о выдаче акта и расчёта представитель.docx"
                 output_filename = "Запрос в страховую о выдаче акта и расчёта представитель.docx"
+                # Заполняем шаблон
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}", 
+                    "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}", 
+                    "{{ NДоверенности }}", "{{ Дата_доверенности }}", "{{ Представитель }}", "{{ Телефон_представителя }}", 
+                    "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}", 
+                    "{{ Nавто_клиента }}", "{{ Марка_модель_виновника }}", "{{ Nавто_виновник }}", 
+                    "{{ Телефон }}"],
+                    [str(data.get("insurance", "")), str(data.get("city", "")), str(data.get("fio", "")), 
+                    str(data.get("date_of_birth", "")), str(data.get("seria_pasport", "")), 
+                    str(data.get("number_pasport", "")), str(data.get("where_pasport", "")), 
+                    str(data.get("when_pasport", "")), str(data.get("N_dov_not", "")), str(data.get("data_dov_not", "")), 
+                    str(data.get("fio_not", "")), str(data.get("number_not", "")), str(data.get("date_dtp", "")), 
+                    str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
+                    str(data.get("marks", "")), str(data.get("car_number", "")), 
+                    str(data.get("marks_culp", "")), str(data.get("number_auto_culp", "")), 
+                    str(data.get("number", ""))],
+                    template_path,
+                    f"clients/"+str(data['client_id'])+f"/Документы/{output_filename}"
+                )
             else:
                 template_path = "Шаблоны/1. ДТП/1. На ремонт/5. Запрос в страховую о выдаче акта и расчета/5. Запрос в страховую о выдаче акта и расчёта.docx"
                 output_filename = "Запрос в страховую о выдаче акта и расчёта.docx"
 
-            # Заполняем шаблон
-            replace_words_in_word(
-                ["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}", 
-                "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}", 
-                "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}", 
-                "{{ Nавто_клиента }}", "{{ Марка_модель_виновника }}", "{{ Nавто_виновник }}", 
-                "{{ Телефон }}"],
-                [str(data.get("insurance", "")), str(data.get("city", "")), str(data.get("fio", "")), 
-                str(data.get("date_of_birth", "")), str(data.get("seria_pasport", "")), 
-                str(data.get("number_pasport", "")), str(data.get("where_pasport", "")), 
-                str(data.get("when_pasport", "")), str(data.get("date_dtp", "")), 
-                str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
-                str(data.get("marks", "")), str(data.get("car_number", "")), 
-                str(data.get("marks_culp", "")), str(data.get("number_auto_culp", "")), 
-                str(data.get("number", ""))],
-                template_path,
-                f"clients/"+str(data['client_id'])+f"/Документы/{output_filename}"
-            )
+                # Заполняем шаблон
+                replace_words_in_word(
+                    ["{{ Страховая }}", "{{ Город }}", "{{ ФИО }}", "{{ ДР }}", "{{ Паспорт_серия }}", 
+                    "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", "{{ Паспорт_когда }}", 
+                    "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Марка_модель }}", 
+                    "{{ Nавто_клиента }}", "{{ Марка_модель_виновника }}", "{{ Nавто_виновник }}", 
+                    "{{ Телефон }}", "{{ ФИОк }}"],
+                    [str(data.get("insurance", "")), str(data.get("city", "")), str(data.get("fio", "")), 
+                    str(data.get("date_of_birth", "")), str(data.get("seria_pasport", "")), 
+                    str(data.get("number_pasport", "")), str(data.get("where_pasport", "")), 
+                    str(data.get("when_pasport", "")), str(data.get("date_dtp", "")), 
+                    str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
+                    str(data.get("marks", "")), str(data.get("car_number", "")), 
+                    str(data.get("marks_culp", "")), str(data.get("number_auto_culp", "")), 
+                    str(data.get("number", "")), str(data.get("fio_k", ""))],
+                    template_path,
+                    f"clients/"+str(data['client_id'])+f"/Документы/{output_filename}"
+                )
             
             # Отправляем документ агенту
             try:
@@ -4755,8 +5517,8 @@ def setup_client_agent_handlers(bot, user_temp_data):
                 bot.send_message(call.message.chat.id, "❌ Ошибка: файл не найден")
             
             # Уведомляем клиента
-            client_user_id = user_temp_data[agent_id].get('client_user_id')
-            if client_user_id:
+            client_user_id = user_temp_data[agent_id].get('user_id')
+            if client_user_id and str(client_user_id) != '8572367590':
                 try:
                     keyboard = types.InlineKeyboardMarkup()
                     keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
@@ -4774,15 +5536,16 @@ def setup_client_agent_handlers(bot, user_temp_data):
             keyboard.add(types.InlineKeyboardButton("2", callback_data="agent_vibor2"))
             keyboard.add(types.InlineKeyboardButton("3", callback_data="agent_vibor3"))
             keyboard.add(types.InlineKeyboardButton("4", callback_data="agent_vibor4"))
+            keyboard.add(types.InlineKeyboardButton("5", callback_data="agent_vibor5"))
             keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_answer_insurance_question"))  # Добавлена кнопка
             
             bot.send_message(
                 call.message.chat.id,
-                "Выберите из предложенных вариантов:\n\n"
-                "1) Страховая компания без согласования произвела выплату. Направление на ремонт не выдавалось.\n"
-                "2) Страховая компания выдала направление на ремонт, СТО отказала.\n"
-                "3) Страховая выдала направление на ремонт и ремонт произведен.\n"
-                "4) Страховая компания выдала направление на ремонт, СТО дальше 50 км.",
+                    "1) Страховая компания без согласования произвела выплату. Направление на ремонт не выдавалось.\n"
+                    "2) Страховая компания выдала направление на ремонт, СТО отказала.\n"
+                    "3) У страховой компании нет СТО.\n"
+                    "4) Страховая компания выдала направление на ремонт, СТО дальше 50 км.\n"
+                    "5) Страховая компания не организовала ремонт.\n",
                 reply_markup=keyboard
             )
     @bot.callback_query_handler(func=lambda call: call.data.startswith("agent_vibor"))
@@ -4790,12 +5553,12 @@ def setup_client_agent_handlers(bot, user_temp_data):
     def agent_vibor_handler(call):
         """Обработка выбора варианта развития"""
         agent_id = call.from_user.id
-        data = user_temp_data[agent_id]['answer_insurance_data']
+        data = user_temp_data[agent_id]
         client_id = user_temp_data[agent_id]['client_id']
-        client_user_id = user_temp_data[agent_id].get('client_user_id')
+        client_user_id = user_temp_data[agent_id].get('user_id')
         
         data.update({"vibor": call.data.replace("agent_","")})
-        if call.data in ["agent_vibor1", "agent_vibor4"]:
+        if call.data in ["agent_vibor1","agent_vibor3", "agent_vibor4", "agent_vibor5"]:
             # 1 и 4 - ожидание претензии
             data['status'] = "Ожидание претензии"
             
@@ -4806,7 +5569,7 @@ def setup_client_agent_handlers(bot, user_temp_data):
             except Exception as e:
                 print(f"⚠️ Ошибка обновления: {e}")
             keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+            keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=get_contract_callback(agent_id, client_id)))
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -4814,8 +5577,10 @@ def setup_client_agent_handlers(bot, user_temp_data):
                 reply_markup = keyboard
             )
             
-            if client_user_id:
+            if client_user_id and str(client_user_id) != '8572367590':
                 try:
+                    keyboard = types.InlineKeyboardMarkup()
+                    keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=get_contract_callback(client_user_id, client_id)))
                     bot.send_message(
                         int(client_user_id),
                         "✅ Ваша претензия формируется. Мы сообщим вам, когда она будет готова!\nУбедитесь, что нотариальная доверенность загружена, а юридические услуги оплачены в личном кабинете.",
@@ -4826,45 +5591,21 @@ def setup_client_agent_handlers(bot, user_temp_data):
 
         elif call.data == "agent_vibor2":
             # 2 - заявление в СТО (СТО отказала)
-            if agent_id not in user_temp_data:
+            if not agent_id in user_temp_data:
                 user_temp_data[agent_id] = {}
-            
-            user_temp_data[agent_id]['sto_refusal_data'] = data
-            user_temp_data[agent_id]['client_id'] = client_id
-            user_temp_data[agent_id]['client_user_id'] = client_user_id
-            
+
+            user_temp_data[agent_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_vibor")) 
             msg = bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                text="Введите название СТО"
+                text="Введите юридическое название СТО из направления на ремонт",
+                reply_markup = keyboard
             )
             user_message_id = msg.message_id
-            bot.register_next_step_handler(msg, agent_sto_refusal_name, agent_id, user_message_id)
+            bot.register_next_step_handler(msg, agent_sto_refusal_name, agent_id, user_message_id, data)
         
-        elif call.data == "agent_vibor3":
-            # 3 - ремонт произведен - дело завершено
-            data['status'] = "Завершен"
-            
-            try:
-                from database import save_client_to_db_with_id
-                updated_client_id, updated_data = save_client_to_db_with_id(data)
-                data.update(updated_data)
-            except Exception as e:
-                print(f"⚠️ Ошибка обновления: {e}")
-            
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text="🎉 Поздравляем с завершением дела!"
-            )
-            
-            if client_user_id:
-                try:
-                    bot.send_message(int(client_user_id), "🎉 Ваше дело успешно завершено!")
-                except:
-                    pass
-            from main_menu import show_main_menu_by_user_id
-            show_main_menu_by_user_id(bot, agent_id)
         # Очищаем временные данные только для вариантов 1, 3, 4
         if call.data != "agent_vibor2":
             if agent_id in user_temp_data:
@@ -4875,9 +5616,36 @@ def setup_client_agent_handlers(bot, user_temp_data):
                 if 'client_user_id' in user_temp_data[agent_id]:
                     del user_temp_data[agent_id]['client_user_id']
 
-
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_vibor"))
+    @prevent_double_click(timeout=3.0)
+    def handler_back_to_vibor(call):
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[agent_id]
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+       
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("1", callback_data="agent_vibor1"))
+        keyboard.add(types.InlineKeyboardButton("2", callback_data="agent_vibor2"))
+        keyboard.add(types.InlineKeyboardButton("3", callback_data="agent_vibor3"))
+        keyboard.add(types.InlineKeyboardButton("4", callback_data="agent_vibor4"))
+        keyboard.add(types.InlineKeyboardButton("5", callback_data="agent_vibor5"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_answer_insurance_question"))  # Добавлена кнопка
+        
+        bot.send_message(
+            call.message.chat.id,
+                "1) Страховая компания без согласования произвела выплату. Направление на ремонт не выдавалось.\n"
+                "2) Страховая компания выдала направление на ремонт, СТО отказала.\n"
+                "3) У страховой компании нет СТО.\n"
+                "4) Страховая компания выдала направление на ремонт, СТО дальше 50 км.\n"
+                "5) Страховая компания не организовала ремонт.",
+            reply_markup=keyboard
+        )
     # Обработчики для заявления в СТО от агента
-    def agent_sto_refusal_name(message, agent_id, user_message_id):
+    def agent_sto_refusal_name(message, agent_id, user_message_id, data):
         """Обработка названия СТО"""
         bot.clear_step_handler_by_chat_id(chat_id=message.chat.id)
         
@@ -4886,18 +5654,33 @@ def setup_client_agent_handlers(bot, user_temp_data):
             bot.delete_message(message.chat.id, message.message_id)
         except:
             pass
-        
-        data = user_temp_data[agent_id]['sto_refusal_data']
-        data['name_sto'] = message.text.strip()
-        save_step_state(agent_id, 'sto_refusal_name', data)
-        
-        keyboard = create_back_keyboard("back_to_sto_refusal_start")
-        msg = bot.send_message(message.chat.id, "Введите ИНН СТО", reply_markup=keyboard)
+        data.update({'name_sto': message.text.strip()})
+        user_temp_data[agent_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_name_sto"))
+        msg = bot.send_message(message.chat.id, "Введите ИНН СТО, 10 цифр", reply_markup=keyboard)
         user_message_id = msg.message_id
-        bot.register_next_step_handler(msg, agent_sto_refusal_inn, agent_id, user_message_id)
+        bot.register_next_step_handler(msg, agent_sto_refusal_inn, agent_id, user_message_id, data)
 
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_name_sto"))
+    @prevent_double_click(timeout=3.0)
+    def handler_back_to_name_sto(call):
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[agent_id]
+       
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_vibor")) 
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите юридическое название СТО из направления на ремонт",
+            reply_markup = keyboard
+        )
+        user_message_id = msg.message_id
+        bot.register_next_step_handler(msg, agent_sto_refusal_name, agent_id, user_message_id, data)
 
-    def agent_sto_refusal_inn(message, agent_id, user_message_id):
+    def agent_sto_refusal_inn(message, agent_id, user_message_id, data):
         """Обработка ИНН СТО"""
         try:
             bot.delete_message(message.chat.id, user_message_id)
@@ -4905,24 +5688,45 @@ def setup_client_agent_handlers(bot, user_temp_data):
         except:
             pass
         
-        if not message.text.isdigit():
+        if not message.text.isdigit() and len(message.text.replace(" ", "")) != 10:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_vibor")) 
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Неправильный формат! ИНН должен состоять только из цифр.\nВведите ИНН СТО:"
+                "❌ Неправильный формат! ИНН должен состоять только из 10 цифр.\nВведите ИНН СТО:",
+                reply_markup = keyboard
             )
             user_message_id = msg.message_id
-            bot.register_next_step_handler(msg, agent_sto_refusal_inn, agent_id, user_message_id)
+            bot.register_next_step_handler(msg, agent_sto_refusal_inn, agent_id, user_message_id, data)
             return
         
-        data = user_temp_data[agent_id]['sto_refusal_data']
-        data['inn_sto'] = message.text.strip()
-        
-        msg = bot.send_message(message.chat.id, "Введите индекс СТО (6 цифр)")
+        data.update({'inn_sto': message.text.strip()})
+        user_temp_data[agent_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_inn_sto")) 
+        msg = bot.send_message(message.chat.id, "Введите индекс СТО (6 цифр)", reply_markup = keyboard)
         user_message_id = msg.message_id
-        bot.register_next_step_handler(msg, agent_sto_refusal_index, agent_id, user_message_id)
+        bot.register_next_step_handler(msg, agent_sto_refusal_index, agent_id, user_message_id, data)
 
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_inn_sto"))
+    @prevent_double_click(timeout=3.0)
+    def handler_back_to_inn_sto(call):
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[agent_id]
+       
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_name_sto")) 
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите ИНН СТО, 10 цифр",
+            reply_markup = keyboard
+        )
+        user_message_id = msg.message_id
+        bot.register_next_step_handler(msg, agent_sto_refusal_inn, agent_id, user_message_id, data)
 
-    def agent_sto_refusal_index(message, agent_id, user_message_id):
+    def agent_sto_refusal_index(message, agent_id, user_message_id, data):
         """Обработка индекса СТО"""
         try:
             bot.delete_message(message.chat.id, user_message_id)
@@ -4931,23 +5735,44 @@ def setup_client_agent_handlers(bot, user_temp_data):
             pass
         
         if len(message.text.replace(" ", "")) != 6 or not message.text.replace(" ", "").isdigit():
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_inn_sto")) 
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Неправильный формат! Должно быть 6 цифр.\nВведите индекс СТО:"
+                "❌ Неправильный формат! Должно быть 6 цифр.\nВведите индекс СТО:",
+                reply_markup = keyboard
             )
             user_message_id = msg.message_id
-            bot.register_next_step_handler(msg, agent_sto_refusal_index, agent_id, user_message_id)
+            bot.register_next_step_handler(msg, agent_sto_refusal_index, agent_id, user_message_id, data)
             return
-        
-        data = user_temp_data[agent_id]['sto_refusal_data']
+
         data['index_sto'] = message.text.strip()
-        
-        msg = bot.send_message(message.chat.id, "Введите адрес СТО")
+        user_temp_data[agent_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_index_sto")) 
+        msg = bot.send_message(message.chat.id, "Введите адрес СТО", reply_markup = keyboard)
         user_message_id = msg.message_id
-        bot.register_next_step_handler(msg, agent_sto_refusal_address, agent_id, user_message_id)
+        bot.register_next_step_handler(msg, agent_sto_refusal_address, agent_id, user_message_id, data)
 
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_index_sto"))
+    @prevent_double_click(timeout=3.0)
+    def handler_back_to_index_sto(call):
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[agent_id]
+       
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_inn_sto")) 
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите индекс СТО, 6 цифр",
+            reply_markup = keyboard
+        )
+        user_message_id = msg.message_id
+        bot.register_next_step_handler(msg, agent_sto_refusal_index, agent_id, user_message_id, data)
 
-    def agent_sto_refusal_address(message, agent_id, user_message_id):
+    def agent_sto_refusal_address(message, agent_id, user_message_id, data):
         """Обработка адреса СТО"""
         try:
             bot.delete_message(message.chat.id, user_message_id)
@@ -4955,31 +5780,113 @@ def setup_client_agent_handlers(bot, user_temp_data):
         except:
             pass
         
-        data = user_temp_data[agent_id]['sto_refusal_data']
-        data['address_sto'] = message.text.strip()
-        
-        msg = bot.send_message(message.chat.id, "Введите номер направления на СТО")
+        data.update({'address_sto': message.text.strip()})
+        user_temp_data[agent_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_address_sto")) 
+
+        msg = bot.send_message(message.chat.id, "Введите номер направления на СТО", reply_markup = keyboard)
         user_message_id = msg.message_id
-        bot.register_next_step_handler(msg, agent_sto_refusal_n_sto, agent_id, user_message_id)
+        bot.register_next_step_handler(msg, agent_sto_refusal_n_sto, agent_id, user_message_id, data)
 
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_address_sto"))
+    @prevent_double_click(timeout=3.0)
+    def handler_back_to_address_sto(call):
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[agent_id]
+       
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_index_sto")) 
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите адрес СТО",
+            reply_markup = keyboard
+        )
+        user_message_id = msg.message_id
+        bot.register_next_step_handler(msg, agent_sto_refusal_address, agent_id, user_message_id, data)
 
-    def agent_sto_refusal_n_sto(message, agent_id, user_message_id):
+    def agent_sto_refusal_n_sto(message, agent_id, user_message_id, data):
         """Обработка номера направления СТО"""
         try:
             bot.delete_message(message.chat.id, user_message_id)
             bot.delete_message(message.chat.id, message.message_id)
         except:
             pass
-        
-        data = user_temp_data[agent_id]['sto_refusal_data']
-        data['N_sto'] = message.text.strip()
-        
-        msg = bot.send_message(message.chat.id, "Введите дату направления на СТО (ДД.ММ.ГГГГ)")
+        data.update({'N_sto': message.text.strip()})
+        user_temp_data[agent_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_N_sto")) 
+        msg = bot.send_message(message.chat.id, "Введите дату передачи авто на СТО (ДД.ММ.ГГГГ)", reply_markup = keyboard)
         user_message_id = msg.message_id
-        bot.register_next_step_handler(msg, agent_sto_refusal_date_napr, agent_id, user_message_id)
+        bot.register_next_step_handler(msg, agent_sto_refusal_date_pred, agent_id, user_message_id, data)
 
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_N_sto"))
+    @prevent_double_click(timeout=3.0)
+    def handler_back_to_N_sto(call):
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[agent_id]
+       
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_address_sto")) 
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите номер направления на СТО",
+            reply_markup = keyboard
+        )
+        user_message_id = msg.message_id
+        bot.register_next_step_handler(msg, agent_sto_refusal_n_sto, agent_id, user_message_id, data)
 
-    def agent_sto_refusal_date_napr(message, agent_id, user_message_id):
+    def agent_sto_refusal_date_pred(message, agent_id, user_message_id, data):
+        """Обработка номера направления СТО"""
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        try:
+            datetime.strptime(message.text, "%d.%m.%Y")
+        except ValueError:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_N_sto")) 
+            msg = bot.send_message(
+                message.chat.id,
+                "❌ Неправильный формат ввода!\nВведите дату передачи авто на СТО (ДД.ММ.ГГГГ)"
+            )
+            user_message_id = msg.message_id
+            bot.register_next_step_handler(msg, agent_sto_refusal_date_pred, agent_id, user_message_id, data)
+            return
+        
+        data.update({'date_sto': message.text.strip()})
+        user_temp_data[agent_id] = data
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_date_sto")) 
+        msg = bot.send_message(message.chat.id, "Введите дату направления на СТО (ДД.ММ.ГГГГ)", reply_markup = keyboard)
+        user_message_id = msg.message_id
+        bot.register_next_step_handler(msg, agent_sto_refusal_date_napr, agent_id, user_message_id, data)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_date_sto"))
+    @prevent_double_click(timeout=3.0)
+    def handler_back_to_date_sto(call):
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        data = user_temp_data[agent_id]
+       
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_N_sto")) 
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите дату передачи авто на СТО (ДД.ММ.ГГГГ)",
+            reply_markup = keyboard
+        )
+        user_message_id = msg.message_id
+        bot.register_next_step_handler(msg, agent_sto_refusal_date_pred, agent_id, user_message_id, data)
+
+    def agent_sto_refusal_date_napr(message, agent_id, user_message_id, data):
         """Обработка даты направления - ФИНАЛ для заявления в СТО"""
         try:
             bot.delete_message(message.chat.id, user_message_id)
@@ -4990,21 +5897,23 @@ def setup_client_agent_handlers(bot, user_temp_data):
         try:
             datetime.strptime(message.text, "%d.%m.%Y")
         except ValueError:
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_date_sto")) 
             msg = bot.send_message(
                 message.chat.id,
-                "❌ Неправильный формат ввода!\nВведите дату направления на СТО в формате ДД.ММ.ГГГГ:"
+                "❌ Неправильный формат ввода!\nВведите дату направления на СТО в формате ДД.ММ.ГГГГ:",
+                reply_markup = keyboard
             )
             user_message_id = msg.message_id
-            bot.register_next_step_handler(msg, agent_sto_refusal_date_napr, agent_id, user_message_id)
+            bot.register_next_step_handler(msg, agent_sto_refusal_date_napr, agent_id, user_message_id, data)
             return
         
-        data = user_temp_data[agent_id]['sto_refusal_data']
-        data['date_napr_sto'] = message.text.strip()
-        data['date_zayav_sto'] = datetime.now().strftime("%d.%m.%Y")
+        data.update({'date_napr_sto': message.text.strip()})
+        data.update({'date_zayav_sto': get_next_business_date()})
         data['status'] = "Ожидание претензии"
         
-        client_id = user_temp_data[agent_id]['client_id']
-        client_user_id = user_temp_data[agent_id]['client_user_id']
+        client_id = data['client_id']
+        client_user_id = data['user_id']
         
         # Обновляем в БД
         try:
@@ -5020,44 +5929,65 @@ def setup_client_agent_handlers(bot, user_temp_data):
         if data.get("N_dov_not", '') != '':
             template_path = "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/6. Заявление в СТО представитель.docx"
             output_filename = "Заявление в СТО представитель.docx"
+                # Заполняем шаблон
+            replace_words_in_word(
+                ["{{ СТО }}", "{{ ИНН_СТО }}", "{{ Индекс_СТО }}", "{{ Адрес_СТО }}", "{{ ФИО }}", 
+                "{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
+                "{{ Паспорт_когда }}", "{{ NДоверенности }}", "{{ Дата_доверенности }}", "{{ Представитель }}", "{{ Телефон_представителя }}",
+                "{{ Номер_направления_СТО }}", "{{ Страховая }}", "{{ Дата_ДТП }}", 
+                "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Дата_предоставления_ТС }}", "{{ Марка_модель }}", 
+                "{{ Nавто_клиента }}", "{{ Дата_Заявления_СТО }}", "{{ ФИОк }}", "{{ Дата }}", "{{ Телефон }}"],
+                [str(data.get("name_sto", "")), str(data.get("inn_sto", "")), str(data.get("index_sto", "")), 
+                str(data.get("address_sto", "")), str(data.get("fio", "")), str(data.get("date_of_birth", "")), 
+                str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")), 
+                str(data.get("where_pasport", "")), str(data.get("when_pasport", "")), 
+                str(data.get("N_dov_not", "")), str(data.get("data_dov_not", "")), str(data.get("fio_not", "")), str(data.get("number_not", "")), 
+                str(data.get("N_sto", "")), str(data.get("insurance", "")), str(data.get("date_dtp", "")), 
+                str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
+                str(data.get("date_sto", "")), str(data.get("marks", "")), str(data.get("car_number", "")), 
+                str(data.get("date_zayav_sto", "")), str(data.get("fio_k", "")), 
+                str(data.get("date_ins", "")), str(data.get("number", ""))],
+                template_path,
+                f"clients/{client_id}/Документы/{output_filename}"
+            )
         else:
             template_path = "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/6. Заявление в СТО.docx"
             output_filename = "Заявление в СТО.docx"
 
-        # Заполняем шаблон
-        replace_words_in_word(
-            ["{{ СТО }}", "{{ ИНН_СТО }}", "{{ Индекс_СТО }}", "{{ Адрес_СТО }}", "{{ ФИО }}", 
-            "{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
-            "{{ Паспорт_когда }}", "{{ Номер_направления_СТО }}", "{{ Страховая }}", "{{ Дата_ДТП }}", 
-            "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Дата_предоставления_ТС }}", "{{ Марка_модель }}", 
-            "{{ Nавто_клиента }}", "{{ Дата_Заявления_СТО }}", "{{ ФИОк }}", "{{ Дата }}", "{{ Телефон }}"],
-            [str(data.get("name_sto", "")), str(data.get("inn_sto", "")), str(data.get("index_sto", "")), 
-            str(data.get("address_sto", "")), str(data.get("fio", "")), str(data.get("date_of_birth", "")), 
-            str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")), 
-            str(data.get("where_pasport", "")), str(data.get("when_pasport", "")), 
-            str(data.get("N_sto", "")), str(data.get("insurance", "")), str(data.get("date_dtp", "")), 
-            str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
-            str(data.get("date_sto", "")), str(data.get("marks", "")), str(data.get("car_number", "")), 
-            str(data.get("date_zayav_sto", "")), str(data.get("fio_k", "")), 
-            str(data.get("date_ins", "")), str(data.get("number", ""))],
-            template_path,
-            f"clients/{client_id}/Документы/{output_filename}"
-        )
+            # Заполняем шаблон
+            replace_words_in_word(
+                ["{{ СТО }}", "{{ ИНН_СТО }}", "{{ Индекс_СТО }}", "{{ Адрес_СТО }}", "{{ ФИО }}", 
+                "{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
+                "{{ Паспорт_когда }}", "{{ Номер_направления_СТО }}", "{{ Страховая }}", "{{ Дата_ДТП }}", 
+                "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ Дата_предоставления_ТС }}",  "{{ Марка_модель }}", 
+                "{{ Nавто_клиента }}", "{{ Дата_Заявления_СТО }}", "{{ ФИОк }}", "{{ Дата }}", "{{ Телефон }}"],
+                [str(data.get("name_sto", "")), str(data.get("inn_sto", "")), str(data.get("index_sto", "")), 
+                str(data.get("address_sto", "")), str(data.get("fio", "")), str(data.get("date_of_birth", "")), 
+                str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")), 
+                str(data.get("where_pasport", "")), str(data.get("when_pasport", "")), 
+                str(data.get("N_sto", "")), str(data.get("insurance", "")), str(data.get("date_dtp", "")), 
+                str(data.get("time_dtp", "")), str(data.get("address_dtp", "")), 
+                str(data.get("date_sto", "")), str(data.get("marks", "")), str(data.get("car_number", "")), 
+                str(data.get("date_zayav_sto", "")), str(data.get("fio_k", "")), 
+                str(data.get("date_ins", "")), str(data.get("number", ""))],
+                template_path,
+                f"clients/{client_id}/Документы/{output_filename}"
+            )
         
         # Отправляем документ агенту
         try:
             keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+            keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(agent_id, data['client_id'])))  
             with open(f"clients/{client_id}/Документы/{output_filename}", 'rb') as doc:
                 bot.send_document(message.chat.id, doc, caption="📋 Заявление в СТО", reply_markup = keyboard)
         except FileNotFoundError:
             bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
         
         # Уведомляем клиента
-        if client_user_id:
+        if client_user_id and str(client_user_id) != '8572367590':
             try:
                 keyboard = types.InlineKeyboardMarkup()
-                keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+                keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"view_contract_{data['client_id']}"))  
                 bot.send_message(
                     int(client_user_id),
                     "✅ Заявление в СТО составлено, ознакомиться с ним можно в личном кабинете.\n\n"
@@ -5069,14 +5999,30 @@ def setup_client_agent_handlers(bot, user_temp_data):
         
         # Очищаем временные данные
         if agent_id in user_temp_data:
-            if 'sto_refusal_data' in user_temp_data[agent_id]:
-                del user_temp_data[agent_id]['sto_refusal_data']
-            if 'client_id' in user_temp_data[agent_id]:
-                del user_temp_data[agent_id]['client_id']
-            if 'client_user_id' in user_temp_data[agent_id]:
-                del user_temp_data[agent_id]['client_user_id']
-            if 'answer_insurance_data' in user_temp_data[agent_id]:
-                del user_temp_data[agent_id]['answer_insurance_data']
+            del user_temp_data[agent_id]
+
+    def get_contract_callback(user_id, client_id):
+        """Определяет правильный callback для просмотра договора в зависимости от роли пользователя"""
+        from database import get_admin_from_db_by_user_id
+        
+        admin_data = get_admin_from_db_by_user_id(user_id)
+        
+        admin_value = admin_data.get('admin_value', '')
+        
+        if admin_value == 'Агент':
+            return f"agent_view_contract_{client_id}"
+        if admin_value == 'Администратор':
+            return f"administrator_view_contract_{client_id}"
+        if admin_value == 'Оценщик':
+            return f"appraiser_view_contract_{client_id}"
+        if admin_value == 'Претензионный отдел':
+            return f"pret_view_contract_{client_id}"
+        if admin_value == 'Претензионный отдел':
+            return f"isk_view_contract_{client_id}"
+        if admin_value == 'Юрист':
+            return f"pret_view_contract_{client_id}"
+        
+        return f"view_contract_{client_id}"
 
 def create_insurance_keyboard(page=0, items_per_page=5):
     """Создает клавиатуру с пагинацией для страховых компаний"""
@@ -5106,7 +6052,7 @@ def create_insurance_keyboard(page=0, items_per_page=5):
     
     # Всегда добавляем кнопку "Другое" в конце
     keyboard.add(types.InlineKeyboardButton('Другое', callback_data="other"))
-    
+    keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_year_auto_from_insurance"))
     return keyboard
 
 def notify_directors_about_document(bot, client_id, fio, doc_type):
@@ -5137,10 +6083,4 @@ def cleanup_messages(bot, chat_id, message_id, count):
         try:
             bot.delete_message(chat_id, message_id - i)
         except:
-
             pass
-
-
-
-
-

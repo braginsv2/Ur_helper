@@ -10,11 +10,48 @@ from client import setup_client_handlers
 import threading
 import time
 from functools import wraps
+import sys
+import logging
+from datetime import datetime
 
+# Настройка логирования в файл
+log_filename = f"bot_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+
+# Создаем папку для логов, если её нет
+import os
+os.makedirs('logs', exist_ok=True)
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(f'logs/{log_filename}', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)  # Дублируем в терминал
+    ]
+)
+
+# Перенаправляем print в файл
+class Logger:
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, 'a', encoding='utf-8')
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush()
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+sys.stdout = Logger(f'logs/{log_filename}')
+sys.stderr = Logger(f'logs/{log_filename}')
 # Словарь для отслеживания активных обработок
 active_callbacks = {}
 callback_lock = threading.Lock()
-
+upload_sessions = {}
 def prevent_double_click(timeout=2.0):
     """
     Декоратор для предотвращения повторных нажатий на inline-кнопки
@@ -84,10 +121,6 @@ def cleanup_messages(bot, chat_id, message_id, count):
 def start_handler(message):
     """Обработчик команды /start с параметрами и без"""
     user_id = message.from_user.id
-    
-    # Очищаем старые данные пользователя
-    if user_id in user_temp_data:
-        del user_temp_data[user_id]
     
     # Проверяем наличие параметров в команде
     command_args = message.text.split()
@@ -359,18 +392,12 @@ def show_registration_button(bot, message):
         reply_markup=keyboard
     )
 
-
 @bot.callback_query_handler(func=lambda call: call.data == "callback_start")
 def callback_start_handler(call):
     """Возврат в начало"""
     cleanup_messages(bot, call.message.chat.id, call.message.message_id, count=5)
     user_id = call.from_user.id
     bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
-    
-    # Очищаем данные
-    if user_id in user_temp_data:
-        del user_temp_data[user_id]
-        print(f"Очищены временные данные для user_id={user_id}")
     
     # Проверяем регистрацию
     admin_data = get_admin_from_db_by_user_id(user_id)
@@ -458,9 +485,11 @@ def help_handler(message):
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 def unknown_message_handler(message):
     """Обработчик неизвестных сообщений"""
+    if message.chat.type != 'private':
+        return
     bot.send_message(
         message.chat.id,
-        "❓ Неизвестная команда. Используйте /help для просмотра доступных команд."
+        "❓ Неизвестная команда. Используйте /start для вызова главного меню."
     )
 
 
@@ -478,13 +507,15 @@ if __name__ == '__main__':
     from podal_z import setup_podal_z_handlers
     from workers.appraiser import setup_appraiser_handlers
     from workers.pret_department import setup_pret_department_handlers
-    
+    from workers.admin import setup_admin_handlers
+
+    setup_admin_handlers(bot, user_temp_data, upload_sessions)
     setup_podal_z_handlers(bot, user_temp_data)
     setup_registration_handlers(bot, user_temp_data)
-    setup_main_menu_handlers(bot, user_temp_data)
-    setup_client_agent_handlers(bot, user_temp_data)
-    setup_client_handlers(bot, user_temp_data)
-    setup_appraiser_handlers(bot, user_temp_data)
+    setup_main_menu_handlers(bot, user_temp_data, upload_sessions)
+    setup_client_agent_handlers(bot, user_temp_data, upload_sessions)
+    setup_client_handlers(bot, user_temp_data, upload_sessions)
+    setup_appraiser_handlers(bot, user_temp_data, upload_sessions)
     setup_pret_department_handlers(bot, user_temp_data)
     setup_net_osago_handlers(bot, user_temp_data)
     try:

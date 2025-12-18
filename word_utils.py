@@ -209,8 +209,9 @@ def export_clients_db_to_excel(db_path='clients.db', output_path='clients_export
     
     # Словарь соответствия: русское название -> название поля в БД
     column_mapping = {
-        '№ Клиента': 'client_id',
+        '№ Договора': 'client_id',
         'Статус': 'status',
+        'Дата принятия решения': 'date_prin',
         'Город': 'city',
         'Клиент ФИО': 'fio',
         'Дата ДТП': 'date_dtp',
@@ -222,7 +223,7 @@ def export_clients_db_to_excel(db_path='clients.db', output_path='clients_export
         'Номер авто виновника': 'number_auto_culp',
         'Дата заявления в страховую': 'date_ins',
         'Дата заявления в СТО': 'date_zayav_sto',
-        'Дата Составления претензии': 'date_pret',
+        'Дата составления претензии': 'date_pret',
         'Дата составления заявления омбуцмену': 'date_ombuc',
         'Дата искового заявления': 'date_isk',
         'Суд': 'sud',
@@ -235,6 +236,7 @@ def export_clients_db_to_excel(db_path='clients.db', output_path='clients_export
         import openpyxl
         from openpyxl.utils.dataframe import dataframe_to_rows
         from openpyxl.styles import Font, PatternFill, Alignment
+        from datetime import datetime, timedelta
         
         # Используем DatabaseManager для подключения к PostgreSQL
         db = DatabaseManager()
@@ -261,10 +263,10 @@ def export_clients_db_to_excel(db_path='clients.db', output_path='clients_export
                         # Специальный случай для ФИО администратора
                         select_columns.append('a.fio as admin_fio')
                         russian_headers.append(rus_name)
-                    elif db_name in available_columns:
+                    elif db_name in available_columns and db_name != 'date_prin':
                         select_columns.append(f'c.{db_name}')
                         russian_headers.append(rus_name)
-                    else:
+                    elif db_name != 'date_prin':
                         print(f"Поле '{db_name}' ({rus_name}) не найдено в таблице")
                 
                 if not select_columns:
@@ -289,8 +291,46 @@ def export_clients_db_to_excel(db_path='clients.db', output_path='clients_export
                 # Преобразуем в DataFrame
                 df = pd.DataFrame([dict(row) for row in results])
                 
+                # Функция для вычисления даты принятия решения
+                def calculate_date_prin(row):
+                    status = row.get('status', '')
+                    date_ins = row.get('date_ins')
+                    date_pret = row.get('date_pret')
+                    print(status)
+                    print(date_ins)
+                    # Если статус соответствует условиям и есть нужные даты
+                    if status == "Отправлен запрос в страховую" and date_ins:
+                        try:
+                            print(1)
+                            if isinstance(date_ins, str):
+                                print(2)
+                                date_ins = datetime.strptime(date_ins, '%d.%m.%Y')
+                                print(date_ins + timedelta(days=20))
+                            return date_ins + timedelta(days=20)
+                        except:
+                            return None
+                    elif status == "Составлена претензия" and date_pret:
+                        try:
+                            if isinstance(date_pret, str):
+                                date_pret = datetime.strptime(date_pret, '%d.%m.%Y')
+                            return date_pret + timedelta(days=30)
+                        except:
+                            return None
+                    return None
+                
+                # Добавляем вычисленный столбец date_prin
+                df['date_prin'] = df.apply(calculate_date_prin, axis=1)
+                
                 # Переименовываем колонки на русские названия
-                df.columns = russian_headers
+                df.columns = russian_headers + ['Дата принятия решения']
+                
+                # Переупорядочиваем колонки согласно column_mapping
+                final_columns = []
+                for rus_name in column_mapping.keys():
+                    if rus_name in df.columns:
+                        final_columns.append(rus_name)
+                
+                df = df[final_columns]
                 
                 print(f"Загружено {len(df)} записей с {len(df.columns)} полями")
                 
@@ -301,32 +341,81 @@ def export_clients_db_to_excel(db_path='clients.db', output_path='clients_export
                 
                 # Добавляем данные в лист
                 for r in dataframe_to_rows(df, index=False, header=True):
-                    ws.append(r)
+                    formatted_row = []
+                    for cell in r:
+                        if isinstance(cell, (datetime, pd.Timestamp)) and pd.notna(cell):
+                            formatted_row.append(cell.strftime('%d.%m.%Y'))
+                        else:
+                            formatted_row.append(cell)
+                    ws.append(formatted_row)
                 
-                # Форматирование заголовков
+                # Форматирование заголовков - заливка RGB (54;96;146)
                 header_font = Font(bold=True, color="FFFFFF")
                 header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
                 header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                 
-                for col in range(1, len(russian_headers) + 1):
+                for col in range(1, len(final_columns) + 1):
                     cell = ws.cell(row=1, column=col)
                     cell.font = header_font
                     cell.fill = header_fill
                     cell.alignment = header_alignment
                 
-                # Автоматическая ширина колонок
+                # Функция для определения цвета статуса
+                def get_status_color(status, date_prin):
+                    if not status or not date_prin:
+                        return None
+                    
+                    try:
+                        if isinstance(date_prin, str):
+                            date_prin = datetime.strptime(date_prin, '%d.%m.%Y')
+                        
+                        today = datetime.now().date()
+                        if isinstance(date_prin, datetime):
+                            date_prin = date_prin.date()
+                        
+                        days_until = (date_prin - today).days
+                        
+                        if 2 <= days_until <= 7:  # Зеленый - от 7 до 2 дней
+                            return "90EE90"  # Light green
+                        elif 0 <= days_until <= 2:  # Желтый - от 2 до 0 дней
+                            return "FFFF00"  # Yellow
+                        elif days_until < 0:  # Красный - просрочено
+                            return "FF6B6B"  # Light red
+                        
+                    except Exception as e:
+                        print(f"Ошибка при расчете цвета статуса: {e}")
+                    
+                    return None
+                
+                # Применяем цветовое форматирование к столбцу статуса
+                status_col_index = final_columns.index('Статус') + 1
+                
+                for row in range(2, len(df) + 2):  # Начинаем с 2 строки (после заголовка)
+                    status_cell = ws.cell(row=row, column=status_col_index)
+                    date_prin_cell = ws.cell(row=row, column=final_columns.index('Дата принятия решения') + 1)
+                    
+                    status_value = status_cell.value
+                    date_prin_value = date_prin_cell.value
+                    
+                    color = get_status_color(status_value, date_prin_value)
+                    if color:
+                        status_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+                
+                # Автоматическая ширина столбцов по самому длинному значению
                 for column in ws.columns:
                     max_length = 0
                     column_letter = column[0].column_letter
                     
                     for cell in column:
                         try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
+                            if cell.value:
+                                cell_length = len(str(cell.value))
+                                if cell_length > max_length:
+                                    max_length = cell_length
                         except:
                             pass
                     
-                    adjusted_width = min(max_length + 2, 50)  # Максимальная ширина 50
+                    adjusted_width = min(max_length + 10, 100)  # Максимальная ширина 50
                     ws.column_dimensions[column_letter].width = adjusted_width
                 
                 # Замораживаем первую строку

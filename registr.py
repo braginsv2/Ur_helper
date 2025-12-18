@@ -174,6 +174,8 @@ def setup_registration_handlers(bot, user_temp_data):
 
         data['user_id'] = str(user_id)
 
+        if data.get('invited_by_user_id', '') != data['user_id']:
+            user_id = int(data.get('invited_by_user_id', ''))
         # Сохраняем данные во временное хранилище
         user_temp_data[user_id] = data
 
@@ -185,7 +187,7 @@ def setup_registration_handlers(bot, user_temp_data):
 
         # Отправляем сообщение о начале заполнения паспортных данных
         passport_info_msg = bot.send_message(
-            call.message.chat.id,
+            int(user_id),
             "🤖 <b>Заполните паспортные данные</b>",
             parse_mode='HTML'
         )
@@ -197,7 +199,7 @@ def setup_registration_handlers(bot, user_temp_data):
 
         # Запрашиваем серию паспорта
         msg = bot.send_message(
-            call.message.chat.id,
+            user_id,
             "Введите серию паспорта (4 цифры):"
         )
         bot.register_next_step_handler(msg, process_invited_client_passport_series, data, msg.message_id)
@@ -252,7 +254,6 @@ def setup_registration_handlers(bot, user_temp_data):
                 del data['passport_info_message_id']
             except:
                 pass
-        
         # Возвращаемся к показу согласия
         process_invited_client_consent(call)
 
@@ -687,8 +688,11 @@ def setup_registration_handlers(bot, user_temp_data):
             
         except Exception as e:
             print(f"❌ Ошибка при обработке файла: {e}")
-            bot.delete_message(message.chat.id, message_id)
-            bot.delete_message(message.chat.id, message.message_id)
+            try:
+                bot.delete_message(message.chat.id, message_id)
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
             msg = bot.send_message(
                 message.chat.id, 
                 "❌ Ошибка при загрузке файла. Попробуйте еще раз:\n\n"
@@ -774,7 +778,7 @@ def setup_registration_handlers(bot, user_temp_data):
                 pass
             
             # ТЕПЕРЬ СОХРАНЯЕМ В БД И ОТПРАВЛЯЕМ НА ПОДТВЕРЖДЕНИЕ
-            user_id = message.from_user.id
+            user_id = data['user_id']
             inviter_type = data.get('invited_by_type')
             
             # Сохраняем в БД
@@ -808,7 +812,7 @@ def setup_registration_handlers(bot, user_temp_data):
                     
                     # Клиенту говорим ждать
                     msg = bot.send_message(
-                        message.chat.id,
+                        int(data['user_id']),
                         "✅ Регистрация завершена!\n\n"
                         "⏳ Ожидайте подтверждения от агента."
                     )
@@ -839,17 +843,19 @@ def setup_registration_handlers(bot, user_temp_data):
                     )
                     
                 elif data['admin_value'] == 'Клиент':
+                    keyboard = types.InlineKeyboardMarkup()
+                    keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
                     bot.send_message(
                         message.chat.id,
-                        "✅ Регистрация завершена!\n\n"
+                        "✅ Регистрация завершена!",
+                        reply_markup = keyboard
                     )
                     bot.send_message(
                         data['invited_by_user_id'],
-                        f"✅ Клиент {data['fio']} завершил регистрацию!\n\n"
+                        f"✅ Клиент {data['fio']} завершил регистрацию!",
+                        reply_markup = keyboard
                     )
-                
-                    from main_menu import show_main_menu_by_user_id
-                    show_main_menu_by_user_id(bot, user_id)
+    
                     
             except Exception as e:
                 print(f"Ошибка сохранения приглашенного клиента: {e}")
@@ -859,8 +865,11 @@ def setup_registration_handlers(bot, user_temp_data):
             
         except Exception as e:
             print(f"❌ Ошибка при обработке файла: {e}")
-            bot.delete_message(message.chat.id, message_id)
-            bot.delete_message(message.chat.id, message.message_id)
+            try:
+                bot.delete_message(message.chat.id, message_id)
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
             msg = bot.send_message(
                 message.chat.id, 
                 "❌ Ошибка при загрузке файла. Попробуйте еще раз:\n\n"
@@ -877,7 +886,7 @@ def setup_registration_handlers(bot, user_temp_data):
         # Получаем данные клиента
         client_data = get_admin_from_db_by_user_id(client_user_id)
         agent_data = get_admin_from_db_by_user_id(agent_id)
-        
+        print(client_data)
         if not client_data or not agent_data:
             bot.answer_callback_query(call.id, "❌ Ошибка: данные не найдены", show_alert=True)
             return
@@ -1035,7 +1044,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def callback_registratsia(call):
         """Начало регистрации - показ соглашения"""
         user_id = call.from_user.id
-        
+        clear_step_handler(bot, call.message.chat.id)
         # Отправляем соглашение с PDF документом
         consent_text = (
             "Для начала сотрудничества нам необходимо ваше согласие на обработку персональных данных.\n\n"
@@ -1156,30 +1165,100 @@ def setup_registration_handlers(bot, user_temp_data):
         
         user_id = call.from_user.id
         data = {'admin_value': role_mapping[call.data]}
+        if data.get('admin_value', '') == "Оценщик":
+            if user_id not in user_temp_data:
+                user_temp_data[user_id] = {}
+            user_temp_data[user_id].update(data)
+            
+            keyboard = types.InlineKeyboardMarkup()
+            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="btn_registratsia")
+            keyboard.add(btn_back)
+            msg = bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Для начала работы, пожалуйста, предоставьте ваши данные.\n\nВведите название организации",
+                reply_markup=keyboard
+            )
+            bot.register_next_step_handler(msg, org_admin, data, msg.message_id)
+        else:
+            data.update({'org': '-'})
+            if user_id not in user_temp_data:
+                user_temp_data[user_id] = {}
+            user_temp_data[user_id].update(data)
+            
+            keyboard = types.InlineKeyboardMarkup()
+            btn1 = types.InlineKeyboardButton("🏙 Томск", callback_data="btn_city_Tomsk_admin")
+            btn2 = types.InlineKeyboardButton("🏙 Красноярск", callback_data="btn_city_Krasnoyarsk_admin")
+            btn3 = types.InlineKeyboardButton("🏙 Новосибирск", callback_data="btn_city_Novosibirsk_admin")
+            btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="btn_registratsia")
+            
+            keyboard.add(btn1)
+            keyboard.add(btn2)
+            keyboard.add(btn3)
+            keyboard.add(btn_back)
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Для начала работы, пожалуйста, предоставьте ваши данные.\n\nВыберите город:",
+                reply_markup=keyboard
+            )
+    def org_admin(message, data, user_message_id):
+        user_id = message.from_user.id
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+        except:
+            pass
         
+        try:
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+        data.update({'org': message.text.strip()})
         if user_id not in user_temp_data:
-            user_temp_data[user_id] = {}
+                user_temp_data[user_id] = {}
         user_temp_data[user_id].update(data)
         
         keyboard = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton("🏙 Томск", callback_data="btn_city_Tomsk_admin")
         btn2 = types.InlineKeyboardButton("🏙 Красноярск", callback_data="btn_city_Krasnoyarsk_admin")
         btn3 = types.InlineKeyboardButton("🏙 Новосибирск", callback_data="btn_city_Novosibirsk_admin")
-        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="btn_registratsia")
+        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="back_org_admin")
         
         keyboard.add(btn1)
         keyboard.add(btn2)
         keyboard.add(btn3)
         keyboard.add(btn_back)
         
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Для начала работы, пожалуйста, предоставьте ваши данные.\n\nВыберите город:",
+        bot.send_message(
+            chat_id=message.chat.id,
+            text="Выберите город:",
             reply_markup=keyboard
         )
-    
-    
+    @bot.callback_query_handler(func=lambda call: call.data == "back_org_admin")
+    @prevent_double_click(timeout=3.0)
+    def back_to_org_admin(call):
+        """Возврат к выбору роли"""
+        user_id = call.from_user.id
+        clear_step_handler(bot, call.message.chat.id)
+
+        
+        if user_id not in user_temp_data:
+            user_temp_data[user_id] = {}
+
+        data = user_temp_data[user_id]
+        
+        keyboard = types.InlineKeyboardMarkup()
+        btn_back = types.InlineKeyboardButton("◀️ Назад", callback_data="btn_registratsia")
+        keyboard.add(btn_back)
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Введите название вашей организации",
+            reply_markup=keyboard
+        )
+        bot.register_next_step_handler(msg, org_admin, data, msg.message_id)
+
     @bot.callback_query_handler(func=lambda call: call.data in ["btn_city_Tomsk_admin", "btn_city_Krasnoyarsk_admin", "btn_city_Novosibirsk_admin"])
     @prevent_double_click(timeout=3.0)
     def callback_admin_value(call):
@@ -1280,32 +1359,32 @@ def setup_registration_handlers(bot, user_temp_data):
         client_fio = message.text.strip()
         
         # Проверка существующих клиентов с таким ФИО
-        existing_clients = search_clients_by_fio_in_db(client_fio)
+        # existing_clients = search_clients_by_fio_in_db(client_fio)
         
-        if existing_clients:
-            keyboard = types.InlineKeyboardMarkup()
+        # if existing_clients:
+        #     keyboard = types.InlineKeyboardMarkup()
             
-            response = f"⚠️ Найдены пользователи с ФИО '{client_fio}':\n\n"
-            for i, client in enumerate(existing_clients[:5], 1):
-                response += f"{i}. 📱 {client.get('number', 'Не указан')}\n"
-                response += f"   📅 Регистрация: {client.get('created_at', '')[:10]}\n\n"
+        #     response = f"⚠️ Найдены пользователи с ФИО '{client_fio}':\n\n"
+        #     for i, client in enumerate(existing_clients[:5], 1):
+        #         response += f"{i}. 📱 {client.get('number', 'Не указан')}\n"
+        #         response += f"   📅 Регистрация: {client.get('created_at', '')[:10]}\n\n"
                 
-                btn_text = f"{i}. Телефон {client.get('number', 'н/д')}"
-                btn_callback = f"select_existing_reg_{client['client_id']}"
-                keyboard.add(types.InlineKeyboardButton(btn_text, callback_data=btn_callback))
+        #         btn_text = f"{i}. Телефон {client.get('number', 'н/д')}"
+        #         btn_callback = f"select_existing_reg_{client['client_id']}"
+        #         keyboard.add(types.InlineKeyboardButton(btn_text, callback_data=btn_callback))
             
-            keyboard.add(types.InlineKeyboardButton("➕ Создать нового", callback_data="create_new_reg_client"))
-            keyboard.add(types.InlineKeyboardButton("❌ Отмена", callback_data="callback_start"))
+        #     keyboard.add(types.InlineKeyboardButton("➕ Создать нового", callback_data="create_new_reg_client"))
+        #     keyboard.add(types.InlineKeyboardButton("❌ Отмена", callback_data="callback_start"))
             
-            # Сохраняем ФИО
-            user_id = message.from_user.id
-            if user_id not in user_temp_data:
-                user_temp_data[user_id] = {}
-            user_temp_data[user_id]['pending_fio'] = client_fio
-            user_temp_data[user_id].update(data)
+        #     # Сохраняем ФИО
+        #     user_id = message.from_user.id
+        #     if user_id not in user_temp_data:
+        #         user_temp_data[user_id] = {}
+        #     user_temp_data[user_id]['pending_fio'] = client_fio
+        #     user_temp_data[user_id].update(data)
             
-            bot.send_message(message.chat.id, response, reply_markup=keyboard)
-            return
+        #     bot.send_message(message.chat.id, response, reply_markup=keyboard)
+        #     return
         
         # ФИО уникально - продолжаем регистрацию
         data['fio'] = client_fio

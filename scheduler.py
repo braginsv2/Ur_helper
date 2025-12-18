@@ -41,9 +41,7 @@ def check_2_weeks_after_application(bot):
                     try:
                         # Парсим дату
                         date_obj = datetime.strptime(date_ins_pod, "%d.%m.%Y")
-                        print(date_obj)
                         days_passed = (datetime.now() - date_obj).days
-                        print(days_passed)
                         # Если прошло 14+ дней
                         if days_passed >= 14:
                             # Получаем информацию о клиенте и агенте
@@ -240,11 +238,11 @@ def check_20_days_after_application(bot):
                                 # Клиент сам зарегистрировался - отправляем вопрос клиенту
                                 from telebot import types
                                 keyboard = types.InlineKeyboardMarkup()
-                                btn_yes = types.InlineKeyboardButton("✅ Есть ответ", callback_data=f"answer_yes_{client_id}")
-                                btn_no = types.InlineKeyboardButton("❌ Нет ответа", callback_data=f"answer_no_{client_id}")
-                                btn_net_osago = types.InlineKeyboardButton("📋 У виновника ДТП Нет ОСАГО", callback_data=f"NoOsago_prod_{client_id}")
-                                keyboard.add(btn_yes, btn_no)
-                                keyboard.add(btn_net_osago)
+                                keyboard.add(types.InlineKeyboardButton("💰 Получена выплата", callback_data="agent_answer_payment"))
+                                keyboard.add(types.InlineKeyboardButton("🔧 Получено направление на ремонт", callback_data="agent_answer_repair"))
+                                keyboard.add(types.InlineKeyboardButton("📋 У виновника ДТП Нет ОСАГО", callback_data=f"NoOsago_prod_{client_id}"))
+                                keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=f"view_contract_{client_id}"))  
+
                                 try:
                                     bot.send_message(
                                         int(user_id),
