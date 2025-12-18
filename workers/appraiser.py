@@ -247,7 +247,8 @@ def setup_appraiser_handlers(bot, user_temp_data, upload_sessions):
             contract_text += "\n📜 Доверенность подтверждена"
         
         status = contract.get('status', '')
-        if contract_data.get('calculation', '') == '':
+        print(contract_data.get('calculation', ''))
+        if contract_data.get('calculation', '') == '' or contract_data.get('calculation', '') == None:
             keyboard.add(types.InlineKeyboardButton("💰 Загрузить калькуляцию", callback_data=f"download_calc_{client_id}"))
 
         keyboard.add(types.InlineKeyboardButton("📤 Загрузить документы", callback_data="download_docs"))
@@ -281,6 +282,7 @@ def setup_appraiser_handlers(bot, user_temp_data, upload_sessions):
             reply_markup=keyboard
         )
         bot.register_next_step_handler(msg, date_exp, data, msg.message_id)
+
 
     def date_exp(message, data, user_message_id):
         user_id = message.from_user.id
@@ -404,23 +406,17 @@ def setup_appraiser_handlers(bot, user_temp_data, upload_sessions):
             except Exception as e:
                 print(f"⚠️ Ошибка обновления: {e}")
 
-            # Инициализация сессии загрузки
-            upload_sessions[user_id] = {
-                'client_id': data['client_id'],
-                'photos': [],
-                'message_id': None
-            }
-            
-            # Отправляем сообщение с инструкцией
-            msg = bot.send_message(
+            user_temp_data[user_id] = data
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("📸 Загрузить фото", callback_data="upload_calc_photos"))
+            keyboard.add(types.InlineKeyboardButton("📄 Загрузить PDF", callback_data="upload_calc_pdf"))
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_coin_exp"))
+
+            bot.send_message(
                 user_id,
-                "📸 Загрузите одну или несколько фотографий калькуляции\n\n"
-                "После загрузки всех фото нажмите кнопку 'Завершить загрузку'",
-                reply_markup=create_upload_keyboard()
+                "Выберите формат загрузки калькуляции:",
+                reply_markup=keyboard
             )
-            
-            # Сохраняем ID сообщения для последующего редактирования
-            upload_sessions[user_id]['message_id'] = msg.message_id
             
         else:
             keyboard = types.InlineKeyboardMarkup()
@@ -447,31 +443,200 @@ def setup_appraiser_handlers(bot, user_temp_data, upload_sessions):
         user_message_id = message.message_id
         bot.register_next_step_handler(message, coin_exp, data, user_message_id)
 
-    @bot.callback_query_handler(func=lambda call: call.data.startswith('download_calc_'))
-    def handle_download_calc(call):
-        client_id = call.data.split('_')[-1]
-        chat_id = call.message.chat.id
+    @bot.callback_query_handler(func=lambda call: call.data == "upload_calc_photos")
+    def handle_upload_calc_photos(call):
+        user_id = call.from_user.id
+        data = user_temp_data[user_id]
+        
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
         
         # Инициализация сессии загрузки
-        upload_sessions[chat_id] = {
-            'client_id': client_id,
+        upload_sessions[user_id] = {
+            'client_id': data['client_id'],
             'photos': [],
             'message_id': None
         }
         
         # Отправляем сообщение с инструкцией
         msg = bot.send_message(
-            chat_id,
+            user_id,
             "📸 Загрузите одну или несколько фотографий калькуляции\n\n"
             "После загрузки всех фото нажмите кнопку 'Завершить загрузку'",
             reply_markup=create_upload_keyboard()
         )
         
         # Сохраняем ID сообщения для последующего редактирования
-        upload_sessions[chat_id]['message_id'] = msg.message_id
-        
-        bot.answer_callback_query(call.id)
+        upload_sessions[user_id]['message_id'] = msg.message_id
 
+    @bot.callback_query_handler(func=lambda call: call.data == "upload_calc_pdf")
+    def handle_upload_calc_pdf(call):
+        user_id = call.from_user.id
+        data = user_temp_data[user_id]
+        
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_coin_exp_format"))
+        
+        msg = bot.send_message(
+            user_id,
+            "📄 Загрузите PDF файл с калькуляцией:",
+            reply_markup=keyboard
+        )
+        
+        bot.register_next_step_handler(msg, process_calc_pdf, data, msg.message_id)
+    @bot.callback_query_handler(func=lambda call: call.data == "back_to_coin_exp_format")
+    def handle_back_to_coin_exp_format(call):
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        user_id = call.from_user.id
+        
+        try:
+            bot.delete_message(user_id, call.message.message_id)
+        except:
+            pass
+        
+        data = user_temp_data[user_id]
+        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("📸 Загрузить фото", callback_data="upload_calc_photos"))
+        keyboard.add(types.InlineKeyboardButton("📄 Загрузить PDF", callback_data="upload_calc_pdf"))
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_coin_exp"))
+        
+        bot.send_message(
+            user_id,
+            "Выберите формат загрузки калькуляции:",
+            reply_markup=keyboard
+        )    
+    def process_calc_pdf(message, data, user_message_id):
+        user_id = message.from_user.id
+        
+        try:
+            bot.delete_message(message.chat.id, user_message_id)
+        except:
+            pass
+        
+        # Проверяем, что это документ
+        if not message.document:
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
+            
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_coin_exp_format"))
+            
+            msg = bot.send_message(
+                message.chat.id,
+                "❌ Пожалуйста, отправьте файл, а не другой тип сообщения.\n"
+                "📄 Загрузите PDF файл с калькуляцией:",
+                reply_markup=keyboard
+            )
+            bot.register_next_step_handler(msg, process_calc_pdf, data, msg.message_id)
+            return
+        
+        # Проверяем расширение файла
+        file_name = message.document.file_name.lower()
+        if not (file_name.endswith('.pdf') or file_name.endswith('.PDF')):
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
+            
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_coin_exp_format"))
+            
+            msg = bot.send_message(
+                message.chat.id,
+                "❌ Неверный формат файла. Требуется PDF.\n"
+                "📄 Загрузите PDF файл с калькуляцией:",
+                reply_markup=keyboard
+            )
+            bot.register_next_step_handler(msg, process_calc_pdf, data, msg.message_id)
+            return
+        
+        try:
+            # Скачиваем файл
+            file_info = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            
+            # Сохраняем PDF
+            docs_path = f"clients/{data['client_id']}/Документы"
+            os.makedirs(docs_path, exist_ok=True)
+            pdf_path = os.path.join(docs_path, "Калькуляция.pdf")
+            
+            with open(pdf_path, 'wb') as pdf_file:
+                pdf_file.write(downloaded_file)
+            
+            # Удаляем сообщение пользователя с файлом
+            try:
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
+            
+            # Обновляем данные в БД
+            data.update({'calculation': 'Загружена'})
+            try:
+                from database import save_client_to_db_with_id
+                updated_client_id, updated_data = save_client_to_db_with_id(data)
+                data.update(updated_data)
+            except Exception as e:
+                print(f"⚠️ Ошибка обновления: {e}")
+            
+            # Начисляем оценщику за калькуляцию
+            try:
+                db_instance = DatabaseManager()
+                with db_instance.get_connection() as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute("""
+                            INSERT INTO appraiser_finances (appraiser_id, balance, total_earned)
+                            VALUES (%s, 3000, 3000)
+                            ON CONFLICT (appraiser_id) DO UPDATE
+                            SET balance = appraiser_finances.balance + 3000,
+                                total_earned = appraiser_finances.total_earned + 3000,
+                                last_updated = CURRENT_TIMESTAMP
+                        """, (str(user_id),))
+                        
+                        cursor.execute("""
+                            INSERT INTO appraiser_earnings_history (appraiser_id, client_id, amount)
+                            VALUES (%s, %s, 3000)
+                        """, (str(user_id), data['client_id']))
+                        
+                        conn.commit()
+                        print(f"✅ Начислено 3000 руб оценщику {user_id} за калькуляцию {data['client_id']}")
+            except Exception as e:
+                print(f"❌ Ошибка начисления оценщику: {e}")
+                import traceback
+                traceback.print_exc()
+            
+            # Отправляем подтверждение
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=get_contract_callback(user_id, data['client_id'])))
+            
+            bot.send_message(
+                message.chat.id,
+                "✅ Калькуляция успешно сохранена!",
+                reply_markup=keyboard
+            )
+            
+        except Exception as e:
+            logging.error(f"Error saving PDF: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"back_to_coin_exp_format"))
+            
+            bot.send_message(
+                message.chat.id,
+                "❌ Ошибка при сохранении PDF файла",
+                reply_markup=keyboard
+            )    
     def create_upload_keyboard():
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("✅ Завершить загрузку", callback_data="finish_upload"))
@@ -614,6 +779,7 @@ def setup_appraiser_handlers(bot, user_temp_data, upload_sessions):
             import traceback
             traceback.print_exc()
             bot.send_message(chat_id, "❌ Ошибка при загрузке фото")
+    
     @bot.callback_query_handler(func=lambda call: call.data == "appraiser_finances")
     @prevent_double_click(timeout=3.0)
     def appraiser_finances_handler(call):

@@ -718,12 +718,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
                     bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
                     
                 keyboard = types.InlineKeyboardMarkup()
-                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
-                bot.send_message(
-                    int(data['user_id']),
-                    "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
-                    reply_markup = keyboard
-                    )
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}"))
+                if data['user_id'] != '8572367590': 
+                    bot.send_message(
+                        int(data['user_id']),
+                        "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
+                        reply_markup = keyboard
+                        )
             elif data["vibor"] == "vibor4":
                 keyboard = types.InlineKeyboardMarkup()
                 if not user_id in user_temp_data:
@@ -938,7 +939,7 @@ def setup_pret_department_handlers(bot, user_temp_data):
             bot.delete_message(message.chat.id, message.message_id)
         except:
             pass
-        data.update({"coin_exp_ins": message.text})
+        data.update({"coin_exp_ins_izn": message.text})
         if message.text.isdigit():
             if data['vibor'] == 'vibor1':
                 data.update({"date_pret": str(get_next_business_date())})
@@ -976,11 +977,12 @@ def setup_pret_department_handlers(bot, user_temp_data):
                     bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
                 keyboard = types.InlineKeyboardMarkup()
                 keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
-                bot.send_message(
-                    int(data['user_id']),
-                    "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
-                    reply_markup = keyboard
-                    )
+                if data['user_id'] != '8572367590': 
+                    bot.send_message(
+                        int(data['user_id']),
+                        "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
+                        reply_markup = keyboard
+                        )
         else:
             user_temp_data[user_id] = data
             keyboard = types.InlineKeyboardMarkup()
@@ -1117,12 +1119,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
             keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
-            bot.send_message(
-                int(data['user_id']),
-                "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
-                reply_markup = keyboard
-                )
+            keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}"))
+            if data['user_id'] != '8572367590':  
+                bot.send_message(
+                    int(data['user_id']),
+                    "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
+                    reply_markup = keyboard
+                    )
 
         elif data["vibor"] == "vibor4":
             data.update({"date_pret": str(get_next_business_date())})
@@ -1159,12 +1162,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
             keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
-            bot.send_message(
-                int(data['user_id']),
-                "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
-                reply_markup = keyboard
-                )
+            keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}"))
+            if data['user_id'] != '8572367590':  
+                bot.send_message(
+                    int(data['user_id']),
+                    "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
+                    reply_markup = keyboard
+                    )
 
     def name_sto(message, data, user_message_id):
         user_id = message.from_user.id
@@ -1466,12 +1470,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
                 except FileNotFoundError:
                     bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
                 keyboard = types.InlineKeyboardMarkup()
-                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
-                bot.send_message(
-                    int(data['user_id']),
-                    "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
-                    reply_markup = keyboard
-                    )
+                keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}"))
+                if data['user_id'] != '8572367590':  
+                    bot.send_message(
+                        int(data['user_id']),
+                        "✅ Претензия составлена, ознакомиться с ней можно в личном кабинете.",
+                        reply_markup = keyboard
+                        )
 
         except ValueError:
             keyboard = types.InlineKeyboardMarkup()
@@ -1663,17 +1668,17 @@ def setup_pret_department_handlers(bot, user_temp_data):
             try:
                 with open(f"clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx", 'rb') as doc:
                     keyboard = types.InlineKeyboardMarkup()
-                    keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+                    keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"pret_view_contract_{data['client_id']}")) 
                     bot.send_document(message.chat.id, doc, caption="📋 Заявление финансовому омбудсмену", reply_markup = keyboard)
             except FileNotFoundError:
                 bot.send_message(message.chat.id, "❌ Ошибка: файл не найден")
 
             notify_isk_department(data["client_id"], data["fio"])
             client_user_id = user_temp_data[user_id].get('client_user_id')
-            if client_user_id:
+            if client_user_id and str(client_user_id) != '8572367590':
                 try:
                     keyboard = types.InlineKeyboardMarkup()
-                    keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+                    keyboard.add(types.InlineKeyboardButton("◀️ Перейти к договору", callback_data=f"view_contract_{data['client_id']}")) 
                     bot.send_message(
                         int(client_user_id),
                         "✅ Заявление к Фин.омбудсмену составлено, ознакомиться с ним можно в личном кабинете",
