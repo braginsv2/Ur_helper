@@ -946,24 +946,31 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
         keyboard = types.InlineKeyboardMarkup()
         
         if call.data == "change_role_CPR":
-            btn1 = types.InlineKeyboardButton("👔 Директор", callback_data="set_role_Директор")
-            btn2 = types.InlineKeyboardButton("🔧 Технический директор", callback_data="set_role_Технический директор")
+            btn1 = types.InlineKeyboardButton("👔 Генеральный директор", callback_data="set_role_Генеральный директор")
+            btn2 = types.InlineKeyboardButton("💻 IT отдел", callback_data="set_role_IT отдел")
+            btn3 = types.InlineKeyboardButton("⚖️ Претензионный отдел", callback_data="set_role_Претензионный отдел")
+            btn4 = types.InlineKeyboardButton("🔍 Исковой отдел", callback_data="set_role_Исковой отдел")
+            btn5 = types.InlineKeyboardButton("📊 Бухгалтер", callback_data="set_role_Бухгалтер")
+            btn6 = types.InlineKeyboardButton("🏷️ Оценщик", callback_data="set_role_Оценщик")
+            btn7 = types.InlineKeyboardButton("👥 HR отдел", callback_data="set_role_HR отдел")
+            keyboard.add(btn1)
+            keyboard.add(btn2)
+            keyboard.add(btn3)
+            keyboard.add(btn4)
+            keyboard.add(btn5)
+            keyboard.add(btn6)
+            keyboard.add(btn7)
+        
+        elif call.data == "change_role_agent":
+            btn1 = types.InlineKeyboardButton("👨‍💼 Директор офиса", callback_data="set_role_Директор офиса")
+            btn2 = types.InlineKeyboardButton("📋 Администратор", callback_data="set_role_Администратор")
             btn3 = types.InlineKeyboardButton("⚖️ Юрист", callback_data="set_role_Юрист")
-            btn4 = types.InlineKeyboardButton("🔍 Эксперт", callback_data="set_role_Эксперт")
+            btn4 = types.InlineKeyboardButton("🤝 Агент", callback_data="set_role_Агент")
             
             keyboard.add(btn1)
             keyboard.add(btn2)
             keyboard.add(btn3)
             keyboard.add(btn4)
-        
-        elif call.data == "change_role_agent":
-            btn1 = types.InlineKeyboardButton("👨‍💼 Руководитель офиса", callback_data="set_role_Руководитель офиса")
-            btn2 = types.InlineKeyboardButton("📋 Администратор", callback_data="set_role_Администратор")
-            btn3 = types.InlineKeyboardButton("👤 Агент", callback_data="set_role_Агент")
-            
-            keyboard.add(btn1)
-            keyboard.add(btn2)
-            keyboard.add(btn3)
         
         # Получаем данные администратора
         admin_data = user_temp_data.get(user_id, {}).get('change_role_admin_data', {})
@@ -1045,25 +1052,21 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
                      f"Новая роль: {new_role}",
                      reply_markup = keyboard
             )
-            
+            try:
+                bot.send_message(
+                    int(admin_data.get('user_id')),
+                    text=f"✅ Роль успешно изменена!\n\n"
+                        f"Старая роль: {admin_data.get('admin_value')}\n"
+                        f"Новая роль: {new_role}",
+                        reply_markup = keyboard
+                    )
+            except:
+                pass
             # Очищаем временные данные
             if user_id in user_temp_data:
                 user_temp_data[user_id].pop('change_role_admin_id', None)
                 user_temp_data[user_id].pop('change_role_admin_data', None)
             
-            # Возвращаемся в главное меню через 2 секунды
-            import time
-            time.sleep(2)
-            
-            # Создаем объект сообщения для show_main_menu
-            class FakeMessage:
-                def __init__(self, chat_id):
-                    self.chat = type('obj', (object,), {'id': chat_id})
-                    self.from_user = type('obj', (object,), {'id': user_id})
-                    self.message_id = type('obj', (object,), msg.message_id)
-            
-            fake_msg = FakeMessage(call.message.chat.id)
-            show_main_menu(bot, fake_msg)
         else:
             bot.answer_callback_query(call.id, "❌ Ошибка при изменении роли", show_alert=True)
     # ========== КЛИЕНТ: ПРИГЛАСИТЬ КЛИЕНТА ==========
@@ -4037,7 +4040,7 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
             print(client_data)
         except Exception as e:
             print(f"⚠️ Ошибка обновления: {e}")
-        
+        create_fio_data_file(data)
         # Сохраняем сумму для загрузки квитанции
         user_temp_data[user_id]['osago_amount'] = amount
         user_temp_data[user_id]['osago_total'] = new_total
@@ -6976,7 +6979,8 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
                         call.message.chat.id,
                         document=file,
                         caption="👨‍💼 Таблица со всеми агентами и администраторами",
-                        visible_file_name="Все_агенты.xlsx"
+                        visible_file_name="Все_агенты.xlsx",
+                        reply_markup = keyboard
                     )
                 
                 # Удаляем временный файл
@@ -6986,7 +6990,7 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
                     text="✅ Таблица успешно сформирована и отправлена!",
-                    reply_markup = keyboard
+                    reply_markup = None
                 )
             else:
                 bot.edit_message_text(

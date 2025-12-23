@@ -2257,14 +2257,13 @@ class DatabaseManager:
                     
                     print(f"Доступные поля в таблице: {available_columns}")
                     
-                    # Создаем список полей для выборки (только те, что есть в БД)
+                    # Создаем список полей для выборки
                     select_columns = []
                     russian_headers = []
                     
                     for rus_name, db_name in column_mapping.items():
                         if db_name == 'admin_fio':
-                            # Специальный случай для ФИО администратора
-                            select_columns.append('a.fio as admin_fio')
+                            select_columns.append('COALESCE(a.fio, c.fio_c, \'Не указано\') as admin_fio')
                             russian_headers.append(rus_name)
                         elif db_name in available_columns and db_name != 'date_prin':
                             select_columns.append(f'c.{db_name}')
@@ -2278,12 +2277,15 @@ class DatabaseManager:
                     
                     # Выполняем запрос к базе данных с фильтром по городу
                     query = f"""
-                    SELECT {', '.join(select_columns)}
+                    SELECT {', '.join(select_columns)}, c.data_json as data_json
                     FROM clients c
                     LEFT JOIN admins a ON c.user_id = a.user_id::text AND a.is_active = true
                     WHERE c.city = %s
                     ORDER BY c.created_at DESC
                     """
+                    
+                    print(f"Выполняем запрос: {query}")
+                    print(f"Параметр: city_filter={city_filter}")
                     
                     cursor.execute(query, (city_filter,))
                     results = cursor.fetchall()
@@ -2292,8 +2294,32 @@ class DatabaseManager:
                         print(f"Нет данных для экспорта в городе {city_filter}!")
                         return False
                     
+                    print(f"Получено {len(results)} записей из БД")
+                    
+                    # Обрабатываем результаты
+                    processed_results = []
+                    for row in results:
+                        client_data = dict(row)
+                        
+                        # Извлекаем статус из JSON если он там есть
+                        json_data = client_data.pop('data_json', '{}')
+                        try:
+                            if json_data:
+                                parsed_json = json.loads(json_data)
+                                # Обновляем статус из JSON (имеет приоритет)
+                                if 'status' in parsed_json and parsed_json['status']:
+                                    client_data['status'] = parsed_json['status']
+                                # Также обновляем другие поля из JSON если они есть там
+                                for key in column_mapping.values():
+                                    if key in parsed_json and parsed_json[key] and key != 'admin_fio':
+                                        client_data[key] = parsed_json[key]
+                        except (json.JSONDecodeError, TypeError) as e:
+                            print(f"Ошибка парсинга JSON: {e}")
+                        
+                        processed_results.append(client_data)
+                    
                     # Преобразуем в DataFrame
-                    df = pd.DataFrame([dict(row) for row in results])
+                    df = pd.DataFrame(processed_results)
                     
                     # Функция для вычисления даты принятия решения
                     def calculate_date_prin(row):
@@ -2306,20 +2332,42 @@ class DatabaseManager:
                             try:
                                 if isinstance(date_ins, str):
                                     date_ins = datetime.strptime(date_ins, '%d.%m.%Y')
+                                elif pd.isna(date_ins):
+                                    return None
                                 return date_ins + timedelta(days=20)
-                            except:
+                            except Exception as e:
+                                print(f"Ошибка парсинга date_ins '{date_ins}': {e}")
                                 return None
                         elif status == "Составлена претензия" and date_pret:
                             try:
                                 if isinstance(date_pret, str):
                                     date_pret = datetime.strptime(date_pret, '%d.%m.%Y')
+                                elif pd.isna(date_pret):
+                                    return None
                                 return date_pret + timedelta(days=30)
-                            except:
+                            except Exception as e:
+                                print(f"Ошибка парсинга date_pret '{date_pret}': {e}")
                                 return None
                         return None
                     
                     # Добавляем вычисленный столбец date_prin
                     df['date_prin'] = df.apply(calculate_date_prin, axis=1)
+                    
+                    # Преобразуем даты обратно в строки
+                    def format_date(value):
+                        if pd.isna(value):
+                            return None
+                        if isinstance(value, (datetime, pd.Timestamp)):
+                            return value.strftime('%d.%m.%Y')
+                        return str(value)
+                    
+                    # Форматируем все колонки с датами
+                    date_columns = ['date_dtp', 'date_ins', 'date_zayav_sto', 'date_pret', 
+                                'date_ombuc', 'date_isk', 'date_prin']
+                    
+                    for col in date_columns:
+                        if col in df.columns:
+                            df[col] = df[col].apply(format_date)
                     
                     # Переименовываем колонки на русские названия
                     df.columns = russian_headers + ['Дата принятия решения']
@@ -2333,6 +2381,7 @@ class DatabaseManager:
                     df = df[final_columns]
                     
                     print(f"Загружено {len(df)} записей с {len(df.columns)} полями для города {city_filter}")
+                    print(f"Пример статусов: {df['Статус'].head(5).tolist() if 'Статус' in df.columns else 'Нет столбца статус'}")
                     
                     # Создаем Excel файл с форматированием
                     wb = openpyxl.Workbook()
@@ -2341,15 +2390,9 @@ class DatabaseManager:
                     
                     # Добавляем данные в лист
                     for r in dataframe_to_rows(df, index=False, header=True):
-                        formatted_row = []
-                        for cell in r:
-                            if isinstance(cell, (datetime, pd.Timestamp)) and pd.notna(cell):
-                                formatted_row.append(cell.strftime('%d.%m.%Y'))
-                            else:
-                                formatted_row.append(cell)
-                        ws.append(formatted_row)
+                        ws.append(r)
                     
-                    # Форматирование заголовков - заливка RGB (54;96;146)
+                    # Форматирование заголовков
                     header_font = Font(bold=True, color="FFFFFF")
                     header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
                     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -2388,21 +2431,22 @@ class DatabaseManager:
                         return None
                     
                     # Применяем цветовое форматирование к столбцу статуса
-                    status_col_index = final_columns.index('Статус') + 1
-                    date_prin_col_index = final_columns.index('Дата принятия решения') + 1
-                    
-                    for row in range(2, len(df) + 2):  # Начинаем с 2 строки (после заголовка)
-                        status_cell = ws.cell(row=row, column=status_col_index)
-                        date_prin_cell = ws.cell(row=row, column=date_prin_col_index)
+                    if 'Статус' in final_columns and 'Дата принятия решения' in final_columns:
+                        status_col_index = final_columns.index('Статус') + 1
+                        date_prin_col_index = final_columns.index('Дата принятия решения') + 1
                         
-                        status_value = status_cell.value
-                        date_prin_value = date_prin_cell.value
-                        
-                        color = get_status_color(status_value, date_prin_value)
-                        if color:
-                            status_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+                        for row in range(2, len(df) + 2):
+                            status_cell = ws.cell(row=row, column=status_col_index)
+                            date_prin_cell = ws.cell(row=row, column=date_prin_col_index)
+                            
+                            status_value = status_cell.value
+                            date_prin_value = date_prin_cell.value
+                            
+                            color = get_status_color(status_value, date_prin_value)
+                            if color:
+                                status_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
                     
-                    # Автоматическая ширина столбцов по самому длинному значению
+                    # Автоматическая ширина столбцов
                     for column in ws.columns:
                         max_length = 0
                         column_letter = column[0].column_letter
@@ -2416,7 +2460,7 @@ class DatabaseManager:
                             except:
                                 pass
                         
-                        adjusted_width = min(max_length + 10, 100)  # Максимальная ширина 100
+                        adjusted_width = min(max_length + 10, 100)
                         ws.column_dimensions[column_letter].width = adjusted_width
                     
                     # Замораживаем первую строку
@@ -2428,7 +2472,6 @@ class DatabaseManager:
                     print(f"Экспорт завершен успешно!")
                     print(f"Файл сохранен: {file_path}")
                     print(f"Экспортировано записей: {len(df)}")
-                    print(f"Количество полей: {len(df.columns)}")
                     
                     return True
                     
@@ -2437,6 +2480,7 @@ class DatabaseManager:
             import traceback
             traceback.print_exc()
             return False
+        
 # Обновленные функции для интеграции с ботом
 def save_client_to_db_with_id(data, connection_params=None):
     """Сохранение данных клиента в базу с генерацией client_id"""
