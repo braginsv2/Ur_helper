@@ -594,7 +594,7 @@ class DatabaseManager:
                         FROM clients 
                         WHERE user_id = %s::text 
                         ORDER BY created_at DESC
-                    """, (user_id,))
+                    """, (str(user_id),))
                     
                     results = cursor.fetchall()
                     return [dict(row) for row in results]
@@ -2271,6 +2271,9 @@ class DatabaseManager:
                         elif db_name != 'date_prin':
                             print(f"Поле '{db_name}' ({rus_name}) не найдено в таблице")
                     
+                    # Добавляем created_at отдельно для расчетов (не для отображения)
+                    select_columns.append('c.created_at')
+                    
                     if not select_columns:
                         print("Не найдено ни одного совпадающего поля!")
                         return False
@@ -2326,6 +2329,7 @@ class DatabaseManager:
                         status = row.get('status', '')
                         date_ins = row.get('date_ins')
                         date_pret = row.get('date_pret')
+                        created_at = row.get('created_at')
                         
                         # Если статус соответствует условиям и есть нужные даты
                         if status == "Отправлен запрос в страховую" and date_ins:
@@ -2335,6 +2339,16 @@ class DatabaseManager:
                                 elif pd.isna(date_ins):
                                     return None
                                 return date_ins + timedelta(days=20)
+                            except Exception as e:
+                                print(f"Ошибка парсинга date_ins '{date_ins}': {e}")
+                                return None
+                        elif status == "Ожидание претензии" and date_ins:
+                            try:
+                                if isinstance(date_ins, str):
+                                    date_ins = datetime.strptime(date_ins, '%d.%m.%Y')
+                                elif pd.isna(date_ins):
+                                    return None
+                                return date_ins + timedelta(days=27)
                             except Exception as e:
                                 print(f"Ошибка парсинга date_ins '{date_ins}': {e}")
                                 return None
@@ -2348,6 +2362,19 @@ class DatabaseManager:
                             except Exception as e:
                                 print(f"Ошибка парсинга date_pret '{date_pret}': {e}")
                                 return None
+                        
+                        elif status == "Оформлен договор" and created_at:
+                            try:
+                                if isinstance(created_at, str):
+                                    # created_at хранится в формате "%d.%m.%Y %H:%M:%S"
+                                    created_at = datetime.strptime(created_at, '%d.%m.%Y %H:%M:%S')
+                                elif pd.isna(created_at):
+                                    return None
+                                return created_at + timedelta(days=3)
+                            except Exception as e:
+                                print(f"Ошибка парсинга created_at '{created_at}': {e}")
+                                return None
+                        
                         return None
                     
                     # Добавляем вычисленный столбец date_prin
@@ -2370,13 +2397,22 @@ class DatabaseManager:
                             df[col] = df[col].apply(format_date)
                     
                     # Переименовываем колонки на русские названия
-                    df.columns = russian_headers + ['Дата принятия решения']
+                    rename_dict = {}
+                    for rus_name, db_name in column_mapping.items():
+                        if db_name in df.columns:
+                            rename_dict[db_name] = rus_name
                     
-                    # Переупорядочиваем колонки согласно column_mapping
+                    df = df.rename(columns=rename_dict)
+                    
+                    # Переупорядочиваем колонки согласно column_mapping (исключаем created_at)
                     final_columns = []
                     for rus_name in column_mapping.keys():
                         if rus_name in df.columns:
                             final_columns.append(rus_name)
+                    
+                    # Добавляем вычисленную колонку в конец
+                    if 'Дата принятия решения' not in final_columns:
+                        final_columns.append('Дата принятия решения')
                     
                     df = df[final_columns]
                     

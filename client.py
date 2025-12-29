@@ -1744,12 +1744,12 @@ def setup_client_handlers(bot, user_temp_data, upload_sessions):
             # Заполняем шаблон юр договора
             replace_words_in_word(
                 ["{{ Год }}", "{{ NКлиента }}", "{{ Город }}", "{{ Дата }}", "{{ ФИО }}", 
-                "{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
+                "{{ ДР }}", "{{ Место }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
                 "{{ Паспорт_когда }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Дата_ДТП }}", 
                 "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ ФИОк }}"],
                 [str(contract_data['year']), str(client_contract_id), str(contract_data["city"]), 
                 str(datetime.now().strftime("%d.%m.%Y")), str(contract_data["fio"]), 
-                str(contract_data["date_of_birth"]), str(contract_data["seria_pasport"]), 
+                str(contract_data["date_of_birth"]), str(contract_data["city_birth"]), str(contract_data["seria_pasport"]), 
                 str(contract_data["number_pasport"]), str(contract_data["where_pasport"]),
                 str(contract_data["when_pasport"]), str(contract_data["index_postal"]), 
                 str(contract_data["address"]), str(contract_data["date_dtp"]), 
@@ -2615,11 +2615,12 @@ def setup_client_handlers(bot, user_temp_data, upload_sessions):
 
     # ==================== ПТС (множественные фото) ====================
 
-    @bot.message_handler(content_types=['photo'], 
-                         func=lambda message: message.chat.id not in upload_sessions or 'photos' not in upload_sessions.get(message.chat.id, {}))
+    @bot.message_handler(content_types=['photo'],
+                         func=lambda message: (message.chat.id not in upload_sessions or 'photos' not in upload_sessions.get(message.chat.id, {})) and (message.chat.id in user_temp_data))
     def handle_pts_photos(message):
         """Обработчик фотографий ПТС (множественная загрузка)"""
         client_id = message.chat.id
+        print('Клиент')
         cleanup_messages(bot, message.chat.id, message.message_id, 3)
         
         def send_photo_confirmation(chat_id, photo_type, count):

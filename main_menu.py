@@ -3173,8 +3173,8 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
         
         # Получаем список договоров клиента
         from database import get_client_contracts_list
-        contracts = get_client_contracts_list(user_id)
-        
+        contracts = get_client_contracts_list(str(user_id))
+
         # Формируем текст личного кабинета
         cabinet_text = f"👤 <b>Личный кабинет</b>\n\n"
         cabinet_text += f"<b>Личные данные:</b>\n"
@@ -4878,12 +4878,13 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
             return
         
         city = admin_data['city_admin']
-        
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"callback_start"))
         message = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=f"🔍 Поиск клиентов в городе: {city}\n\nВведите фамилию и имя клиента:",
-            reply_markup=None
+            reply_markup=keyboard
         )
         user_message_id = message.message_id
         bot.register_next_step_handler(message, search_city_clients_handler, user_message_id, user_id, city, user_temp_data)
@@ -6487,7 +6488,7 @@ def setup_main_menu_handlers(bot, user_temp_data, upload_sessions):
         # Сохраняем данные в user_temp_data
         if agent_id not in user_temp_data:
             user_temp_data[agent_id] = {}
-        user_temp_data[agent_id] = contract
+        user_temp_data[agent_id].update(contract)
         user_temp_data[agent_id]['client_id'] = client_id
         
         # Формируем текст

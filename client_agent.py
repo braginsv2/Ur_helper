@@ -824,12 +824,12 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
             # ФОРМИРУЕМ ЮР ДОГОВОР
             replace_words_in_word(
                 ["{{ Год }}", "{{ NКлиента }}", "{{ Город }}", "{{ Дата }}", "{{ ФИО }}", 
-                "{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
+                "{{ ДР }}", "{{ Место }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
                 "{{ Паспорт_когда }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Дата_ДТП }}", 
                 "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ ФИОк }}"],
                 [str(contract_data['year']), str(client_contract_id), str(contract_data["city"]), 
                 str(datetime.now().strftime("%d.%m.%Y")), str(contract_data["fio"]), 
-                str(contract_data["date_of_birth"]), str(contract_data["seria_pasport"]), 
+                str(contract_data["date_of_birth"]), str(contract_data["city_birth"]), str(contract_data["seria_pasport"]), 
                 str(contract_data["number_pasport"]), str(contract_data["where_pasport"]),
                 str(contract_data["when_pasport"]), str(contract_data["index_postal"]), 
                 str(contract_data["address"]), str(contract_data["date_dtp"]), 
@@ -948,28 +948,59 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
             print(call.data)
             print(call.from_user.id)
             try:
+                if 'contract_data' in user_temp_data[agent_id]:
+                    user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'С начала'
+                    contract_data = user_temp_data[agent_id]['contract_data']
+                else:
+                    user_temp_data[agent_id]['sobstvenik'] = 'С начала'
+                    user_temp_data[agent_id]['contract_data'] = user_temp_data[agent_id]
+                    contract_data = user_temp_data[agent_id]
+            except Exception as e:
+                print(1)
+                user_temp_data[agent_id] = user_temp_data[call.from_user.id]
                 user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'С начала'
                 contract_data = user_temp_data[agent_id]['contract_data']
-            except Exception as e:
-                print(f"Ошибка: {e}")
-                import traceback
-                traceback.print_exc()
+
             context = '✅ Клиент подготовит нотариальную доверенность с начала'
         elif "not_dov_no_" in call.data:
             agent_id = int(call.data.replace("not_dov_no_", ""))
-            user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'После заявления в страховую'
-            contract_data = user_temp_data[agent_id]['contract_data']
+
+            try:
+                if 'contract_data' in user_temp_data[agent_id]:
+                    user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'После заявления в страховую'
+                    contract_data = user_temp_data[agent_id]['contract_data']
+                else:
+                    user_temp_data[agent_id]['sobstvenik'] = 'После заявления в страховую'
+                    user_temp_data[agent_id]['contract_data'] = user_temp_data[agent_id]
+                    contract_data = user_temp_data[agent_id]
+            except Exception as e:
+                print(1)
+                user_temp_data[agent_id] = user_temp_data[call.from_user.id]
+                user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'После заявления в страховую'
+                contract_data = user_temp_data[agent_id]['contract_data']
             context = '✅ Клиент подготовит нотариальную доверенность перед дополнительным осмотром'
         else:
             agent_id = int(call.data.replace("not_dov_no2_", ""))
-            user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'После ответа от страховой'
-            contract_data = user_temp_data[agent_id]['contract_data']
+            
+            try:
+                if 'contract_data' in user_temp_data[agent_id]:
+                    user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'После ответа от страховой'
+                    contract_data = user_temp_data[agent_id]['contract_data']
+                else:
+                    user_temp_data[agent_id]['sobstvenik'] = 'После ответа от страховой'
+                    user_temp_data[agent_id]['contract_data'] = user_temp_data[agent_id]
+                    contract_data = user_temp_data[agent_id]
+            except Exception as e:
+                print(1)
+                user_temp_data[agent_id] = user_temp_data[call.from_user.id]
+                user_temp_data[agent_id]['contract_data']['sobstvenik'] = 'После ответа от страховой'
+                contract_data = user_temp_data[agent_id]['contract_data']
             context = '✅ Клиент подготовит нотариальную доверенность после получения ответа от страховой'
 
         fields_to_remove = [
             'pts_timer', 'dkp_timer', 'protocol_timer', 'dtp_timer', 'dov_timer', 'dtp_cabinet_timer',
             'pts_photos', 'dkp_photos', 'protocol_photos', 'dtp_photos', 'dtp_photos_cabinet', 'doverennost_photos',
-            'driver_license_front', 'driver_license_back', 'sts_front', 'sts_back',
+            'driver_license_front', 'driver_license_back', 'sts_front', 'sts_back', 'step', 'data', 'search_fio', 'add_client_mode'
             'editing_contract', 'editing_field', 'client_user_id', 'contract_data', 'step_history', 'add_client_mode', 'search_fio'
         ]
         
@@ -981,13 +1012,15 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
             bot.delete_message(call.from_user.id, user_temp_data[agent_id]['contract_data']['message_id2'])
         except:
             pass
+        try:
+            msg = bot.edit_message_text(
+                chat_id=agent_id,
+                message_id=user_temp_data[agent_id]['contract_data']['message_id'],
+                text=context
+            )
+        except:
+            print(2)
         
-        msg = bot.edit_message_text(
-            chat_id=agent_id,
-            message_id=user_temp_data[agent_id]['contract_data']['message_id'],
-            text=context
-        )
-        user_temp_data[agent_id]['contract_data']['message_id'] = msg.message_id
         
         try:
             bot.delete_message(agent_id, msg.message_id)
@@ -1341,7 +1374,7 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
         # Отправляем клиенту обновленные данные на подтверждение
         if client_user_id:
             try:
-                text += "<b>Персональные данные:</b>\n"
+                text = "<b>Персональные данные:</b>\n"
                 text += f"👤 ФИО: {contract_data.get('fio', 'не указано')}\n"
                 text += f"📱 Номер телефона: {contract_data.get('number', 'не указан')}\n"
                 text += f"📅 Дата рождения: {contract_data.get('date_of_birth', 'не указана')}\n"
@@ -1396,9 +1429,6 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
         if 'editing_field' in user_temp_data[agent_id]:
             del user_temp_data[agent_id]['editing_field']
         
-        # Возвращаемся в главное меню
-        from main_menu import show_main_menu_by_user_id
-        show_main_menu_by_user_id(bot, agent_id)
 
 
     @bot.callback_query_handler(func=lambda call: call.data == "cancel_edit_contract")
@@ -2728,7 +2758,7 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
     # ==================== ПТС (множественные фото) ====================
 
     @bot.message_handler(content_types=['photo'],
-                         func=lambda message: message.chat.id not in upload_sessions or 'photos' not in upload_sessions.get(message.chat.id, {}))
+                         func=lambda message: (message.chat.id not in upload_sessions or 'photos' not in upload_sessions.get(message.chat.id, {})) and (message.chat.id in user_temp_data))
     def handle_pts_photos(message):
         """Обработчик фотографий ПТС (множественная загрузка)"""
         client_id = message.chat.id
@@ -4686,20 +4716,24 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
             # Создаем PDF из фото ДТП
             pdf_path = f"{client_dir}/Фото_ДТП.pdf"
             create_pdf_from_images_agent2(photos, pdf_path)
-            
-            # Очищаем временные данные
-            del user_temp_data[agent_id]['dtp_photos']
-            
+
+            try:
+                # Очищаем временные данные
+                user_temp_data[agent_id].pop('dtp_photos', None)
+            except:
+                print(123)
+                pass
+            print(2)
             fields_to_remove = [
                 'pts_timer', 'dkp_timer', 'protocol_timer', 'dtp_timer', 'dov_timer', 'dtp_cabinet_timer',
                 'pts_photos', 'dkp_photos', 'protocol_photos', 'dtp_photos', 'dtp_photos_cabinet', 'doverennost_photos',
-                'driver_license_front', 'driver_license_back', 'sts_front', 'sts_back',
+                'driver_license_front', 'driver_license_back', 'sts_front', 'sts_back', 'message_id2', 'message_id',
                 'editing_contract', 'editing_field', 'client_user_id', 'contract_data', 'step_history', 'add_client_mode', 'search_fio'
             ]
             
             for field in fields_to_remove:
                 data.pop(field, None)
-
+            print(3)
             try:
                 from database import save_client_to_db_with_id
                 updated_client_id, updated_data = save_client_to_db_with_id(data)
@@ -4707,6 +4741,8 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
                 print(data)
             except Exception as e:
                 print(f"⚠️ Ошибка обновления: {e}")
+            
+            create_fio_data_file(data)
             client_id = data['client_id']
             keyboard = types.InlineKeyboardMarkup()
             if data['accident'] == 'ДТП':
@@ -5184,6 +5220,7 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
         client_id = user_temp_data[agent_id]['client_id']
         
         keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("💰 Тотал, выплата 400к₽", callback_data=f"agent_total_answer_insurance"))
         keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"agent_answer_insurance_{client_id}"))
         
         bot.edit_message_text(
@@ -5195,6 +5232,79 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
         
         bot.register_next_step_handler(call.message, process_insurance_payment_amount, agent_id, call.message.message_id)
 
+    @bot.callback_query_handler(func=lambda call: call.data == "agent_total_answer_insurance")
+    @prevent_double_click(timeout=3.0)
+    def agent_total_answer_insurance(call):
+        """Получена полная выплата """
+        agent_id = call.from_user.id
+        bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
+        client_id = user_temp_data[agent_id]['client_id']
+        data = user_temp_data[agent_id]
+        data.update({'coin_osago': '400000'})
+        try:
+            from database import save_client_to_db_with_id
+            updated_client_id, updated_data = save_client_to_db_with_id(data)
+            data.update(updated_data)
+            print(data)
+        except Exception as e:
+            print(f"⚠️ Ошибка обновления: {e}")
+        create_fio_data_file(data)
+        # Сохраняем сумму для загрузки квитанции
+        user_temp_data[agent_id] = data
+        user_temp_data[agent_id]['insurance_osago_amount'] = '400000'
+        user_temp_data[agent_id]['insurance_osago_total'] = '400000'
+        
+        # Инициализируем сессию загрузки квитанции
+        chat_id = call.message.chat.id
+        upload_sessions[chat_id] = {
+            'client_id': agent_id,
+            'photos': [],
+            'message_id': None,
+            'number_id': client_id,
+            'type': 'insurance_payment'  # Маркер для различения типа загрузки
+        }
+        
+        
+        msg = bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="💰 Общая сумма выплат: 400000 руб.\n\n📸 Теперь загрузите квитанцию (одну или несколько фотографий):",
+            reply_markup=create_upload_keyboard_insurance()
+        )
+        upload_sessions[chat_id]['message_id'] = msg.message_id
+
+    @bot.callback_query_handler(func=lambda call: call.data in ["agent_total_answer_insurance_ura", "agent_total_answer_insurance_delict"])
+    @prevent_double_click(timeout=3.0)
+    def agent_total_answer_insurance_ura(call):
+        """Получена выплата - запрашиваем сумму"""
+        agent_id = call.from_user.id
+        client_id = user_temp_data[agent_id]['client_id']
+        data = user_temp_data[agent_id]
+        if call.data == "agent_total_answer_insurance_ura":
+            data.update({'status': 'Завершен'})
+            context = "Поздравляем с завершением дела"
+        else:
+            data.update({'status': 'Деликт'})
+            context = "Исковое заявление формируется, напомните клиенту о необходимости загрузки доверенности и подтверждения оплаты"
+
+        try:
+            from database import save_client_to_db_with_id
+            updated_client_id, updated_data = save_client_to_db_with_id(data)
+            data.update(updated_data)
+            print(data)
+        except Exception as e:
+            print(f"⚠️ Ошибка обновления: {e}")
+        create_fio_data_file(data)
+
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=get_contract_callback(agent_id, client_id))) 
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=context,
+            reply_markup=keyboard
+        )   
 
     def process_insurance_payment_amount(message, agent_id, prev_message_id):
         """Обработка суммы выплаты от страховой"""
@@ -5247,8 +5357,9 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
             print(client_data)
         except Exception as e:
             print(f"⚠️ Ошибка обновления: {e}")
-        
+        create_fio_data_file(data)
         # Сохраняем сумму для загрузки квитанции
+        user_temp_data[agent_id] = client_data
         user_temp_data[agent_id]['insurance_osago_amount'] = amount
         user_temp_data[agent_id]['insurance_osago_total'] = new_total
         
@@ -5315,27 +5426,57 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
             user_id = session['client_id']
             osago_amount = user_temp_data.get(user_id, {}).get('insurance_osago_amount', 0)
             osago_total = user_temp_data.get(user_id, {}).get('insurance_osago_total', 0)
+            data = user_temp_data.get(user_id, {})
+            print(data)
+            if data['coin_osago'] == '400000':
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("👌 Ура", callback_data=f"agent_total_answer_insurance_ura"))
+                keyboard.add(types.InlineKeyboardButton("⚖️ Деликт", callback_data=f"agent_total_answer_insurance_delict"))
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"agent_answer_payment"))
 
-            keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton("Да", callback_data="agent_docs_ins_yes"))
-            keyboard.add(types.InlineKeyboardButton("Нет", callback_data="agent_docs_ins_no"))
-            keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"agent_answer_insurance_{client_id}"))
+                bot.send_message(
+                    chat_id,
+                    "Выберите из предложенных вариантов",
+                    reply_markup = keyboard
+                )
+                try:
+                    # Очищаем сессию
+                    del upload_sessions[chat_id]
+                    if user_id in user_temp_data:
+                        user_temp_data[user_id].pop('insurance_osago_amount', None)
+                        user_temp_data[user_id].pop('insurance_osago_total', None)
+                        data.pop('insurance_osago_amount', None)
+                        data.pop('insurance_osago_total', None)
+                except:
+                    pass
 
-            bot.send_message(
-                chat_id,
-                f"✅ Квитанция успешно сохранена как '{filename}'!\n"
-                f"💰 Добавлено: {osago_amount} руб.\n"
-                f"💰 Итого выплат: {osago_total} руб.\n"
-                f"📸 Загружено фото: {len(session['photos'])}\n\n"
-                f"Необходимо заявление на выдачу документов из страховой?",
-                reply_markup = keyboard
-            )
-            
-            # Очищаем сессию
-            del upload_sessions[chat_id]
-            if user_id in user_temp_data:
-                user_temp_data[user_id].pop('insurance_osago_amount', None)
-                user_temp_data[user_id].pop('insurance_osago_total', None)
+            else:
+
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("Да", callback_data="agent_docs_ins_yes"))
+                keyboard.add(types.InlineKeyboardButton("Нет", callback_data="agent_docs_ins_no"))
+                keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data=f"agent_answer_insurance_{client_id}"))
+
+                bot.send_message(
+                    chat_id,
+                    f"✅ Квитанция успешно сохранена как '{filename}'!\n"
+                    f"💰 Добавлено: {osago_amount} руб.\n"
+                    f"💰 Итого выплат: {osago_total} руб.\n"
+                    f"📸 Загружено фото: {len(session['photos'])}\n\n"
+                    f"Необходимо заявление на выдачу документов из страховой?",
+                    reply_markup = keyboard
+                )
+                
+                try:
+                    # Очищаем сессию
+                    del upload_sessions[chat_id]
+                    if user_id in user_temp_data:
+                        user_temp_data[user_id].pop('insurance_osago_amount', None)
+                        user_temp_data[user_id].pop('insurance_osago_total', None)
+                        data.pop('insurance_osago_amount', None)
+                        data.pop('insurance_osago_total', None)
+                except:
+                    pass
             
         except Exception as e:
             print(f"Error creating PDF: {e}")
@@ -5568,6 +5709,7 @@ def setup_client_agent_handlers(bot, user_temp_data,upload_sessions):
                 data.update(updated_data)
             except Exception as e:
                 print(f"⚠️ Ошибка обновления: {e}")
+            create_fio_data_file(data)
             keyboard = types.InlineKeyboardMarkup()
             keyboard.add(types.InlineKeyboardButton("◀️ Вернуться к договору", callback_data=get_contract_callback(agent_id, client_id)))
             bot.edit_message_text(
@@ -6083,8 +6225,4 @@ def cleanup_messages(bot, chat_id, message_id, count):
         try:
             bot.delete_message(chat_id, message_id - i)
         except:
-
             pass
-
-
-

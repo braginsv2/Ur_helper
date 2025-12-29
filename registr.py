@@ -2399,10 +2399,10 @@ def setup_registration_handlers(bot, user_temp_data):
             
             data['passport_photo_2_3'] = file_path
             user_temp_data[message.from_user.id] = data
-            
+
             bot.delete_message(message.chat.id, message_id)
             bot.delete_message(message.chat.id, message.message_id)
-            
+
             msg = bot.send_message(
                 message.chat.id, 
                 "✅ Файл принят!\n\n🤖 Теперь прикрепите фото прописки паспорта (4-5 или 6-7 стр):"
