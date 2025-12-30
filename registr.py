@@ -196,18 +196,20 @@ def setup_registration_handlers(bot, user_temp_data):
         if passport_info_msg and hasattr(passport_info_msg, 'message_id'):
             data['passport_info_message_id'] = passport_info_msg.message_id
             user_temp_data[user_id] = data
-
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
         # Запрашиваем серию паспорта
         msg = bot.send_message(
             user_id,
-            "Введите серию паспорта (4 цифры):"
+            "Введите серию паспорта (4 цифры):",
+            reply_markup = keyboard
         )
         bot.register_next_step_handler(msg, process_invited_client_passport_series, data, msg.message_id)
 
     def process_invited_client_passport_series(message, data, prev_message_id):
         """Обработка серии паспорта для приглашенного клиента"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id) 
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -219,7 +221,7 @@ def setup_registration_handlers(bot, user_temp_data):
         
         if not series.isdigit() or len(series) != 4:
             keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton("◌ Назад", callback_data="back_invited_consent"))
+            keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
             msg = bot.send_message(
                 message.chat.id,
                 "❌ Серия паспорта должна содержать 4 цифры. Попробуйте снова:",
@@ -230,7 +232,7 @@ def setup_registration_handlers(bot, user_temp_data):
             return
         
         data['seria_pasport'] = series
-        user_temp_data[message.from_user.id] = data
+        user_temp_data[message.from_user.id].update(data)
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_series"))
@@ -243,7 +245,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_invited_consent_handler(call):
         """Возврат к согласию приглашенного клиента"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -262,12 +264,12 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_invited_passport_series_handler(call):
         """Возврат к вводу серии паспорта для приглашенного"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
         keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_consent"))
+        keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
         
         message = bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -282,7 +284,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_invited_client_passport_number(message, data, prev_message_id):
         """Обработка номера паспорта для приглашенного клиента"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)  # ДОБАВИТЬ
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -305,7 +307,7 @@ def setup_registration_handlers(bot, user_temp_data):
             return
         
         data['number_pasport'] = number
-        user_temp_data[message.from_user.id] = data
+        user_temp_data[message.from_user.id].update(data)
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_number"))
@@ -318,7 +320,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_invited_passport_number_handler(call):
         """Возврат к вводу номера паспорта для приглашенного"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -338,7 +340,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_invited_client_passport_issued_by(message, data, prev_message_id):
         """Обработка поля 'кем выдан' для приглашенного клиента"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)  # ДОБАВИТЬ
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -347,7 +349,7 @@ def setup_registration_handlers(bot, user_temp_data):
             pass
         
         data['where_pasport'] = message.text.strip()
-        user_temp_data[message.from_user.id] = data
+        user_temp_data[message.from_user.id].update(data)
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_issued"))
@@ -360,7 +362,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_invited_passport_issued_handler(call):
         """Возврат к вводу 'кем выдан' для приглашенного"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -380,7 +382,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_invited_client_passport_date(message, data, prev_message_id):
         """Обработка даты выдачи паспорта для приглашенного клиента"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id) 
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -403,7 +405,7 @@ def setup_registration_handlers(bot, user_temp_data):
             return
         
         data['when_pasport'] = date_text
-        user_temp_data[message.from_user.id] = data
+        user_temp_data[message.from_user.id].update(data)
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_date"))
@@ -416,7 +418,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_invited_passport_date_handler(call):
         """Возврат к вводу даты выдачи паспорта для приглашенного"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -436,7 +438,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_invited_client_birth_date(message, data, prev_message_id):
         """Обработка даты рождения для приглашенного клиента"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -459,7 +461,7 @@ def setup_registration_handlers(bot, user_temp_data):
             return
         
         data['date_of_birth'] = date_text
-        user_temp_data[message.from_user.id] = data
+        user_temp_data[message.from_user.id].update(data)
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_birth_date"))
@@ -472,7 +474,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_invited_birth_date_handler(call):
         """Возврат к вводу даты рождения для приглашенного"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -492,7 +494,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_invited_client_birth_city(message, data, prev_message_id):
         """Обработка города рождения для приглашенного клиента"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -501,7 +503,7 @@ def setup_registration_handlers(bot, user_temp_data):
             pass
         
         data['city_birth'] = message.text.strip()
-        user_temp_data[message.from_user.id] = data
+        user_temp_data[message.from_user.id].update(data)
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_birth_city"))
@@ -514,7 +516,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_invited_birth_city_handler(call):
         """Возврат к вводу города рождения для приглашенного"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -534,7 +536,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_invited_client_address(message, data, prev_message_id):
         """Обработка адреса прописки для приглашенного клиента"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -543,7 +545,7 @@ def setup_registration_handlers(bot, user_temp_data):
             pass
         
         data['address'] = message.text.strip()
-        user_temp_data[message.from_user.id] = data
+        user_temp_data[message.from_user.id].update(data)
         
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_address"))
@@ -556,7 +558,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_invited_address_handler(call):
         """Возврат к вводу адреса для приглашенного"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -576,7 +578,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_invited_client_postal_index(message, data, prev_message_id):
         """Обработка почтового индекса для приглашенного клиента"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -599,7 +601,7 @@ def setup_registration_handlers(bot, user_temp_data):
             return
         
         data['index_postal'] = index
-        user_temp_data[message.from_user.id] = data
+        user_temp_data[message.from_user.id].update(data)
         
         # Переходим к загрузке фото паспорта
         msg = bot.send_message(
@@ -614,7 +616,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_invited_client_passport_photo_2_3(message, data, message_id):
         """Обработка фото 2-3 страницы паспорта для приглашенного клиента"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id) 
+        bot.clear_step_handler_by_chat_id(message.chat.id)
 
         file_id = None
         file_extension = None
@@ -1044,7 +1046,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def callback_registratsia(call):
         """Начало регистрации - показ соглашения"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         # Отправляем соглашение с PDF документом
         consent_text = (
             "Для начала сотрудничества нам необходимо ваше согласие на обработку персональных данных.\n\n"
@@ -1240,7 +1242,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_org_admin(call):
         """Возврат к выбору роли"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
 
         
         if user_id not in user_temp_data:
@@ -1292,7 +1294,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_role_selection(call):
         """Возврат к выбору роли"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
 
         
         keyboard = types.InlineKeyboardMarkup()
@@ -1316,7 +1318,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_fio_admin(message, data, prev_message_id):
         """Обработка ввода ФИО"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)
+        bot.clear_step_handler_by_chat_id(message.chat.id)
 
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -1406,7 +1408,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_fio_input(call):
         """Возврат к вводу ФИО"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -1426,7 +1428,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_phone_registration(message, data, prev_message_id):
         """Обработка номера телефона"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -1481,7 +1483,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_phone_input(call):
         """Возврат к вводу телефона"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -1509,7 +1511,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_new_passport_series(message, data, prev_message_id):
         """Обработка серии паспорта"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -1545,7 +1547,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_passport_series(call):
         """Возврат к вводу серии паспорта"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -1565,7 +1567,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_new_passport_number(message, data, prev_message_id):
         """Обработка номера паспорта"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -1601,7 +1603,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_passport_number(call):
         """Возврат к вводу номера паспорта"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -1621,7 +1623,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_new_passport_issued_by(message, data, prev_message_id):
         """Обработка поля 'кем выдан'"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -1643,7 +1645,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_passport_issued_handler(call):
         """Возврат к вводу 'кем выдан'"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -1663,7 +1665,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_new_passport_date(message, data, prev_message_id):
         """Обработка даты выдачи паспорта"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -1699,7 +1701,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_passport_date_handler(call):
         """Возврат к вводу даты выдачи паспорта"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -1719,7 +1721,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_birth_date(message, data, prev_message_id):
         """Обработка даты рождения"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -1755,7 +1757,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_birth_date_handler(call):
         """Возврат к вводу даты рождения"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -1775,7 +1777,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_birth_city(message, data, prev_message_id):
         """Обработка города рождения"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -1797,7 +1799,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_birth_city_handler(call):
         """Возврат к вводу города рождения"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -1817,7 +1819,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_address(message, data, prev_message_id):
         """Обработка адреса прописки"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
@@ -1839,7 +1841,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def back_to_address_handler(call):
         """Возврат к вводу адреса"""
         user_id = call.from_user.id
-        clear_step_handler(bot, call.message.chat.id)
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
         
         data = user_temp_data.get(user_id, {})
         
@@ -1859,7 +1861,7 @@ def setup_registration_handlers(bot, user_temp_data):
     def process_postal_index(message, data, prev_message_id):
         """Обработка почтового индекса"""
         user_id = message.from_user.id
-        clear_step_handler(bot, message.chat.id)  # ДОБАВИТЬ
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         
         try:
             bot.delete_message(message.chat.id, prev_message_id)
