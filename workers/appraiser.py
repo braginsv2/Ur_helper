@@ -13,7 +13,7 @@ from database import (
 import threading
 import time
 from functools import wraps
-
+from word_utils import create_fio_data_file
 active_callbacks = {}
 callback_lock = threading.Lock()
 db = DatabaseManager()
@@ -405,7 +405,7 @@ def setup_appraiser_handlers(bot, user_temp_data, upload_sessions):
                 print(data)
             except Exception as e:
                 print(f"⚠️ Ошибка обновления: {e}")
-
+            create_fio_data_file(data)
             user_temp_data[user_id] = data
             keyboard = types.InlineKeyboardMarkup()
             keyboard.add(types.InlineKeyboardButton("📸 Загрузить фото", callback_data="upload_calc_photos"))
@@ -587,7 +587,7 @@ def setup_appraiser_handlers(bot, user_temp_data, upload_sessions):
                 data.update(updated_data)
             except Exception as e:
                 print(f"⚠️ Ошибка обновления: {e}")
-            
+            create_fio_data_file(data)
             # Начисляем оценщику за калькуляцию
             try:
                 db_instance = DatabaseManager()
@@ -680,6 +680,7 @@ def setup_appraiser_handlers(bot, user_temp_data, upload_sessions):
                 data.update(updated_data)
             except Exception as e:
                 print(f"⚠️ Ошибка обновления: {e}")
+            create_fio_data_file(data)
             # Удаляем сообщение с кнопкой
             bot.delete_message(chat_id, session['message_id'])
             keyboard = types.InlineKeyboardMarkup()

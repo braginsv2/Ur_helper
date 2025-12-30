@@ -97,6 +97,9 @@ def setup_pret_department_handlers(bot, user_temp_data):
                         SELECT client_id, fio, created_at, status, accident
                         FROM clients
                         WHERE status IN ('Ожидание претензии', 'Составлена претензия')
+                        AND calculation = 'Загружена'
+                        AND data_json::jsonb->>'payment_confirmed' = 'Yes'
+                        AND data_json::jsonb->>'doverennost_confirmed' = 'Yes'
                         ORDER BY created_at DESC
                     """)
                     all_contracts = cursor.fetchall()
@@ -321,7 +324,7 @@ def setup_pret_department_handlers(bot, user_temp_data):
         # Проверяем статус оплаты
         payment_confirmed = contract_data.get('payment_confirmed', '') == 'Yes'
         payment_pending = contract_data.get('payment_pending', '') == 'Yes'
-        
+        calc_confirmed = contract_data.get('calculation', '') == 'Загружена'
         if payment_pending and not payment_confirmed:
             contract_text += "\n⏳ Ожидает проверки оплаты"
         elif payment_confirmed:
@@ -359,11 +362,15 @@ def setup_pret_department_handlers(bot, user_temp_data):
         elif doverennost_confirmed:
             contract_text += "\n📜 Доверенность подтверждена"
         
+        if calc_confirmed:
+            contract_text += "\n📄 Калькуляция загружена"
+        else:
+            contract_text += "\n📄 Калькуляция не загружена"
         status = contract.get('status', '')
         if contract.get('accident', '') == 'ДТП':
-            if status == "Ожидание претензии" and doverennost_confirmed and payment_confirmed:
+            if status == "Ожидание претензии" and doverennost_confirmed and payment_confirmed and calc_confirmed:
                 keyboard.add(types.InlineKeyboardButton("📝 Составить претензию", callback_data=f"create_pretenziya_{client_id}"))
-            elif status == "Составлена претензия" and doverennost_confirmed and payment_confirmed:
+            elif status == "Составлена претензия" and doverennost_confirmed and payment_confirmed and calc_confirmed:
                 keyboard.add(types.InlineKeyboardButton("📝 Заявление Фин.омбудсмену", callback_data=f"create_ombudsmen_{client_id}"))
 
         keyboard.add(types.InlineKeyboardButton("📤 Загрузить документы", callback_data="download_docs"))
@@ -433,7 +440,7 @@ def setup_pret_department_handlers(bot, user_temp_data):
         user_temp_data[user_id]['pretenziya_data'] = data
         user_temp_data[user_id]['client_id'] = client_id
         user_temp_data[user_id]['client_user_id'] = data.get('user_id')
-        if data.get('coin_osago', '0') == '':
+        if data.get('coin_osago', '0') == '' or data.get('coin_osago', '0') == None:
             data.update({'coin_osago': '0'})
 
         if data["vibor"] == "vibor1":
@@ -700,13 +707,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                                 "{{ Дата_заявления_форма6 }}", "{{ Серия_полиса }}", "{{ Номер_полиса }}", "{{ Nакта_осмотра }}", "{{ Выплата_ОСАГО }}", 
                                                 "{{ Дата_ответ_страховой }}", "{{ Организация }}", "{{ Номер_экспертизы }}", "{{ Дата_экспертизы }}",
                                                 "{{ Без_учета_износа }}", "{{ Утрата_стоимости }}","{{ Разница }}","{{ Дата_претензии }}"],
-                                                [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                                    str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),
-                                                    str(data["date_ins"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["Na_ins"]), str(data.get('coin_osago', '0')),
-                                                    str(data["date_ins_otv"]), str(data["org_exp"]), str(data["n_exp"]),str(data["date_exp"]),
-                                                    str(data["coin_exp"]), str(data["coin_exp_izn"]), str(float(data["coin_exp"])+float(data["coin_exp_izn"])-float(data.get('coin_osago', '0'))), 
-                                                    str(data["data_pret"])],
+                                                [str(data.get("insurance", '')), str(data.get("city", '')), str(data.get("fio", '')), str(data.get("date_of_birth", '')),
+                                                    str(data.get("seria_pasport", '')), str(data.get("number_pasport", '')),str(data.get("where_pasport", '')), str(data.get("when_pasport", '')),
+                                                    str(data.get("N_dov_not", '')), str(data.get("data_dov_not", '')), str(data.get("fio_not", '')), str(data.get("number_not", '')),
+                                                    str(data.get("date_ins", '')), str(data.get("seria_insurance", '')), str(data.get("number_insurance", '')), str(data.get("Na_ins", '')), str(data.get('coin_osago') or '0'),
+                                                    str(data.get("date_ins_otv", '')), str(data.get("org_exp", '')), str(data.get("n_exp", '')),str(data.get("date_exp", '')),
+                                                    str(data.get("coin_exp", '')), str(data.get("coin_exp_izn", '')), str(float(data.get("coin_exp", ''))+float(data.get("coin_exp_izn", ''))-float(data.get('coin_osago') or '0')), 
+                                                    str(data.get("data_pret", ''))],
                                                     "Шаблоны/1. ДТП/1. На ремонт/У страховой нет СТО/Претензия у страховой нет СТО.docx",
                                                     "clients/"+str(data["client_id"])+"/Документы/"+"Претензия у страховой нет СТО.docx")
                 try:
@@ -959,13 +966,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                             "{{ Адрес_ДТП }}", "{{ Организация_страховой }}", "{{ Дата_экспертизы_страховой }}", "{{ Без_учета_износа_страховой }}",
                                             "{{ С_учетом_износа_страховой }}", "{{ Выплата_ОСАГО }}", "{{ Организация }}", "{{ Номер_экспертизы }}",
                                             "{{ Дата_экспертизы }}", "{{ Без_учета_износа }}","{{ Утрата_стоимости }}", "{{ Разница }}","{{ Дата_претензии }}"],
-                                            [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                                str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                                str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),str(data["Na_ins"]), 
-                                                str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
-                                                str(data["org_exp_ins"]), str(data["date_exp_ins"]), str(data["coin_exp_ins"]),str(data["coin_exp_ins_izn"]),
-                                                str(data.get('coin_osago', '0')), str(data["org_exp"]), str(data["n_exp"]), str(data["date_exp"]),
-                                                str(data["coin_exp"]), str(data["coin_exp_izn"]), str(float(data["coin_exp"])+float(data["coin_exp_izn"])-float(data.get('coin_osago', '0'))), str(data["date_pret"])],
+                                            [str(data.get("insurance", '')), str(data.get("city", '')), str(data.get("fio", '')), str(data.get("date_of_birth", '')),
+                                                str(data.get("seria_pasport", '')), str(data.get("number_pasport", '')),str(data.get("where_pasport", '')), str(data.get("when_pasport", '')),
+                                                str(data.get("N_dov_not", '')), str(data.get("data_dov_not", '')), str(data.get("fio_not", '')), str(data.get("number_not", '')),str(data.get("Na_ins", '')), 
+                                                str(data.get("date_ins", '')), str(data.get("Nv_ins", '')), str(data.get("date_dtp", '')), str(data.get("time_dtp", '')), str(data.get("address_dtp", '')),
+                                                str(data.get("org_exp_ins", '')), str(data.get("date_exp_ins", '')), str(data.get("coin_exp_ins", '')),str(data.get("coin_exp_ins_izn", '')),
+                                                str(data.get('coin_osago') or '0'), str(data.get("org_exp", '')), str(data.get("n_exp", '')), str(data.get("date_exp", '')),
+                                                str(data.get("coin_exp", '')), str(data.get("coin_exp_izn", '')), str(float(data.get("coin_exp", '0'))+float(data.get("coin_exp_izn", '0'))-float(data.get('coin_osago') or '0')), str(data.get("date_pret", ''))],
                                                 "Шаблоны/1. ДТП/1. На ремонт/Выплата без согласования/6. Претензия в страховую Выплата без согласования.docx",
                                                 "clients/"+str(data["client_id"])+"/Документы/"+"Претензия в страховую Выплата без согласования.docx")
                 try:
@@ -1103,12 +1110,12 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                             "{{ Nакта_осмотра }}", "{{ Дата }}", "{{ Nв_страховую }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", 
                                             "{{ Адрес_ДТП }}", "{{ Дата_направления_ремонт }}", "{{ Номер_направления_СТО }}", "{{ СТО }}","{{ Дата_предоставления_ТС }}",
                                             "{{ Марка_модель }}","{{ Nавто_клиента }}","{{ Дата_отказа_СТО }}","{{ Дата_претензии }}", "{{ Город_СТО }}"],
-                                            [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                                str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                                str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),str(data["Na_ins"]), 
-                                                str(data["date_ins"]), str(data["Nv_ins"]), str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
-                                                str(data["date_napr_sto"]), str(data["N_sto"]), str(data["name_sto"]), str(data["date_sto"]),str(data["marks"]),str(data["car_number"]),
-                                                str(data["data_otkaz_sto"]), str(data["date_pret"]), str(data["city_sto"]), ],
+                                            [str(data.get("insurance",'')), str(data.get("city",'')), str(data.get("fio",'')), str(data.get("date_of_birth",'')),
+                                                str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
+                                                str(data.get("N_dov_not",'')), str(data.get("data_dov_not",'')), str(data.get("fio_not",'')), str(data.get("number_not",'')),str(data.get("Na_ins",'')), 
+                                                str(data.get("date_ins",'')), str(data.get("Nv_ins",'')), str(data.get("date_dtp",'')), str(data.get("time_dtp",'')), str(data.get("address_dtp",'')),
+                                                str(data.get("date_napr_sto",'')), str(data.get("N_sto",'')), str(data.get("name_sto",'')), str(data.get("date_sto",'')),str(data.get("marks",'')),str(data.get("car_number",'')),
+                                                str(data.get("data_otkaz_sto",'')), str(data.get("date_pret",'')), str(data.get("city_sto",'')) ],
                                                 "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/7. Претензия в страховую СТО отказала.docx",
                                                 "clients/"+str(data["client_id"])+"/Документы/"+"Претензия в страховую СТО отказала.docx")
             try:
@@ -1144,14 +1151,14 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                     "{{ Nакта_осмотра }}", "{{ Дата_заявления_форма6 }}", "{{ Серия_полиса }}", "{{ Номер_полиса }}","{{ Nв_страховую }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", 
                                     "{{ Дата_направления_ремонт }}", "{{ Номер_направления_СТО }}", "{{ Название_СТО }}","{{ Индекс_СТО }}", "{{ Адрес_СТО }}", "{{ Город_СТО }}", "{{ Организация }}",
                                     "{{ Номер_экспертизы }}", "{{ Дата_экспертизы }}","{{ Без_учета_износа }}","{{ Утрата_стоимости }}","{{ Разница }}", "{{ Дата_претензии }}"],
-                                    [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                        str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                        str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),str(data["Na_ins"]), 
-                                        str(data["date_ins"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["Nv_ins"]), 
-                                        str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]),
-                                        str(data["date_napr_sto"]), str(data["N_sto"]), str(data["name_sto"]),str(data["index_sto"]),str(data["address_sto"]),
-                                        str(data["city_sto"]), str(data["org_exp"]), str(data["n_exp"]), str(data["date_exp"]), str(data["coin_exp"]),
-                                        str(data["coin_exp_izn"]), str(float(data["coin_exp"])+float(data['coin_exp_izn'])), str(data["date_pret"])],
+                                    [str(data.get("insurance",'')), str(data.get("city",'')), str(data.get("fio",'')), str(data.get("date_of_birth",'')),
+                                        str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
+                                        str(data.get("N_dov_not",'')), str(data.get("data_dov_not",'')), str(data.get("fio_not",'')), str(data.get("number_not",'')),str(data.get("Na_ins",'')), 
+                                        str(data.get("date_ins",'')), str(data.get("seria_insurance",'')), str(data.get("number_insurance",'')), str(data.get("Nv_ins",'')), 
+                                        str(data.get("date_dtp",'')), str(data.get("time_dtp",'')), str(data.get("address_dtp",'')),
+                                        str(data.get("date_napr_sto",'')), str(data.get("N_sto",'')), str(data.get("name_sto",'')),str(data.get("index_sto",'')),str(data.get("address_sto",'')),
+                                        str(data.get("city_sto",'')), str(data.get("org_exp",'')), str(data.get("n_exp",'')), str(data.get("date_exp",'')), str(data.get("coin_exp",'')),
+                                        str(data.get("coin_exp_izn",'')), str(float(data.get("coin_exp",''))+float(data.get('coin_exp_izn',''))), str(data.get("date_pret",''))],
                                         "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО свыше 50км/6. Претензия в страховую  СТО свыше 50 км.docx",
                                         "clients/"+str(data["client_id"])+"/Документы/"+"Претензия в страховую  СТО свыше 50 км.docx")
             try:
@@ -1453,13 +1460,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                             "{{ Адрес_СТО }}", "{{ Дата_СТО }}", "{{ ФИО_СТО }}", "{{ Дата_СТО_30 }}",
                                             "{{ Организация }}", "{{ Номер_экспертизы }}","{{ Дата_экспертизы }}", 
                                             "{{ Без_учета_износа }}", "{{ Утрата_стоимости }}","{{ Разница }}", "{{ Дата_претензии }}"],
-                                            [str(data["insurance"]), str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                                str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                                str(data["N_dov_not"]), str(data["data_dov_not"]), str(data["fio_not"]), str(data["number_not"]),str(data["date_ins"]), 
-                                                str(data["seria_insurance"]), str(data["number_insurance"]), str(data["Na_ins"]), str(data["name_sto"]), str(data["address_sto"]),
-                                                str(data["date_sto"]), str(data["fio_sto"]), str(data["date_istch_rem"]),str(data["org_exp"]),
-                                                str(data["n_exp"]), str(data["date_exp"]), str(data["coin_exp"]), str(data["coin_exp_izn"]),
-                                                str(float(data["coin_exp"])+float(data["coin_exp_izn"])-float(data.get('coin_osago', '0'))), str(data["date_pret"]),],
+                                            [str(data.get("insurance",'')), str(data.get("city",'')), str(data.get("fio",'')), str(data.get("date_of_birth",'')),
+                                                str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
+                                                str(data.get("N_dov_not",'')), str(data.get("data_dov_not",'')), str(data.get("fio_not",'')), str(data.get("number_not",'')),str(data.get("date_ins",'')), 
+                                                str(data.get("seria_insurance",'')), str(data.get("number_insurance",'')), str(data.get("Na_ins",'')), str(data.get("name_sto",'')), str(data.get("address_sto",'')),
+                                                str(data.get("date_sto",'')), str(data.get("fio_sto",'')), str(data.get("date_istch_rem",'')),str(data.get("org_exp",'')),
+                                                str(data.get("n_exp",'')), str(data.get("date_exp",'')), str(data.get("coin_exp",'')), str(data.get("coin_exp_izn",'')),
+                                                str(float(data.get("coin_exp",'0'))+float(data.get("coin_exp_izn",'0'))-float(data.get('coin_osago') or '0')), str(data.get("date_pret",''))],
                                                 "Шаблоны/1. ДТП/1. На ремонт/Страховая не организовала ремонт/6. претензия Страховаяя не организовала ремонт.docx",
                                                 "clients/"+str(data["client_id"])+"/Документы/"+"Претензия Страховая не организовала ремонт.docx")
                 try:
@@ -1589,13 +1596,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                 "{{ Адрес_ДТП }}", "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Дата_заявления_форма6 }}",
                                 "{{ Nв_страховую }}", "{{ Организация_страховой }}","{{ Дата_экспертизы_страховой }}", "{{ Без_учета_износа_страховой }}",
                                 "{{ С_учетом_износа_страховой }}", "{{ Дата_претензии }}", "{{ Дата_ответа_на_претензию }}", "{{ Выплата_ОСАГО }}", "{{ Разница }}", "{{ ФИОк }}"],
-                                [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                    str(data["number_not"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
-                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
-                                    str(data["date_ins_pod"]), str(data["Nv_ins"]), str(data["org_exp_ins"]),str(data["date_exp_ins"]),
-                                    str(data["coin_exp_ins"]), str(data["coin_exp_ins_izn"]),str(data["date_pret"]),
-                                    str(data["data_pret_otv"]), str(data.get('coin_osago', '0')), str(float(data["coin_exp"])+float(data["coin_exp_izn"])-float(data.get('coin_osago', '0'))), str(data["fio_k"])],
+                                [str(data.get("date_ombuc",'')), str(data.get("insurance",'')),str(data.get("city",'')), str(data.get("fio",'')), str(data.get("date_of_birth",'')),
+                                    str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
+                                    str(data.get("number_not",'')), str(data.get("seria_insurance",'')), str(data.get("number_insurance",'')), str(data.get("date_insurance",'')),
+                                    str(data.get("date_dtp",'')), str(data.get("time_dtp",'')), str(data.get("address_dtp",'')), str(data.get("marks",'')), str(data.get("car_number",'')),
+                                    str(data.get("date_ins_pod",'')), str(data.get("Nv_ins",'')), str(data.get("org_exp_ins",'')),str(data.get("date_exp_ins",'')),
+                                    str(data.get("coin_exp_ins",'')), str(data.get("coin_exp_ins_izn",'')),str(data.get("date_pret",'')),
+                                    str(data.get("data_pret_otv",'')), str(data.get('coin_osago') or '0'), str(float(data.get("coin_exp",'0'))+float(data.get("coin_exp_izn",'0'))-float(data.get('coin_osago') or '0')), str(data.get("fio_k",''))],
                                     "Шаблоны/1. ДТП/1. На ремонт/Выплата без согласования/7. Заявление фин. омбудсмену при выплате без согласования.docx",
                                     "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx")
             elif data['vibor'] == 'vibor2':
@@ -1606,13 +1613,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                 "{{ Nв_страховую }}", "{{ Организация }}","{{ Nэкспертизы }}", "{{ Дата_экспертизы }}",
                                 "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата_направления_ремонт }}", "{{ Номер_направления_СТО }}", "{{ СТО }}", "{{ Дата_предоставления_ТС }}",
                                 "{{ Дата_претензии }}", "{{ ФИОк }}"],
-                                [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),str(data["city_birth"]),
-                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                    str(data["address"]), str(data["number"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
-                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
-                                    str(data["date_ins_pod"]), str(data["Nv_ins"]), str(data["org_exp"]), str(data["n_exp"]), str(data["date_exp"]),
-                                    str(data["coin_exp"]), str(data["coin_exp_izn"]), str(data["date_napr_sto"]), str(data["N_sto"]),str(data["name_sto"]),
-                                    str(data["date_sto"]), str(data["date_pret"]), str(data["fio_k"])],
+                                [str(data.get("date_ombuc",'')), str(data.get("insurance",'')),str(data.get("city",'')), str(data.get("fio",'')), str(data.get("date_of_birth",'')),str(data.get("city_birth",'')),
+                                    str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
+                                    str(data.get("address",'')), str(data.get("number",'')), str(data.get("seria_insurance",'')), str(data.get("number_insurance",'')), str(data.get("date_insurance",'')),
+                                    str(data.get("date_dtp",'')), str(data.get("time_dtp",'')), str(data.get("address_dtp",'')), str(data.get("marks",'')), str(data.get("car_number",'')),
+                                    str(data.get("date_ins_pod",'')), str(data.get("Nv_ins",'')), str(data.get("org_exp",'')), str(data.get("n_exp",'')), str(data.get("date_exp",'')),
+                                    str(data.get("coin_exp",'')), str(data.get("coin_exp_izn",'')), str(data.get("date_napr_sto",'')), str(data.get("N_sto",'')),str(data.get("name_sto",'')),
+                                    str(data.get("date_sto",'')), str(data.get("date_pret",'')), str(data.get("fio_k",''))],
                                     "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО отказала/8. Заявление фин. омбуцмену СТО отказала.docx",
                                     "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx")
             elif data['vibor'] == 'vibor3':
@@ -1622,13 +1629,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                 "{{ Адрес_ДТП }}", "{{ Марка_модель }}", "{{ Nавто_клиента }}", "{{ Дата_заявления_форма6 }}",
                                 "{{ Nакта_осмотра }}", "{{ Выплата_ОСАГО }}","{{ Дата_ответ_страховой }}", "{{ Организация }}",
                                 "{{ Номер_экспертизы }}", "{{ Дата_экспертизы }}", "{{ Без_учета_износа }}", "{{ Утрата_стоимости }}", "{{ Разница }}", "{{ Дата_претензии }}","{{ ФИОк }}"],
-                                [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                    str(data["number_not"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
-                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
-                                    str(data["date_ins_pod"]), str(data["Na_ins"]), str(data.get('coin_osago', '0')),str(data["date_ins_otv"]),
-                                    str(data["org_exp"]), str(data["n_exp"]),str(data["date_exp"]),
-                                    str(data["coin_exp"]), str(data["coin_exp_izn"]), str(float(data["coin_exp"])+float(data["coin_exp_izn"])), str(data["date_pret"]), str(data["fio_k"])],
+                                [str(data.get("date_ombuc",'')), str(data.get("insurance",'')),str(data.get("city",'')), str(data.get("fio",'')), str(data.get("date_of_birth",'')),
+                                    str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
+                                    str(data.get("number_not",'')), str(data.get("seria_insurance",'')), str(data.get("number_insurance",'')), str(data.get("date_insurance",'')),
+                                    str(data.get("date_dtp",'')), str(data.get("time_dtp",'')), str(data.get("address_dtp",'')), str(data.get("marks",'')), str(data.get("car_number",'')),
+                                    str(data.get("date_ins_pod",'')), str(data.get("Na_ins",'')), str(data.get('coin_osago') or '0'),str(data.get("date_ins_otv",'')),
+                                    str(data.get("org_exp",'')), str(data.get("n_exp",'')),str(data.get("date_exp",'')),
+                                    str(data.get("coin_exp",'0')), str(data.get("coin_exp_izn",'0')), str(float(data.get("coin_exp",'0'))+float(data.get("coin_exp_izn",'0'))), str(data.get("date_pret",'')), str(data.get("fio_k",''))],
                                     "Шаблоны/1. ДТП/1. На ремонт/У страховой нет СТО/Омбуцмен у страховой нет СТО.docx",
                                     "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx")
             elif data['vibor'] == 'vibor4':
@@ -1639,13 +1646,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                 "{{ Nв_страховую }}", "{{ Организация }}","{{ Nэкспертизы }}", "{{ Дата_экспертизы }}",
                                 "{{ Без_учета_износа }}", "{{ С_учетом_износа }}", "{{ Дата_направления_ремонт }}", "{{ Номер_направления_СТО }}", "{{ Название_СТО }}",
                                 "{{ Дата_претензии }}", "{{ Город_СТО }}", "{{ Разница }}", "{{ ФИОк }}"],
-                                [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                    str(data["number_not"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
-                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
-                                    str(data["date_ins_pod"]), str(data["Nv_ins"]), str(data["org_exp"]), str(data["n_exp"]), str(data["date_exp"]),
-                                    str(data["coin_exp"]), str(data["coin_exp_ins"]),str(data["date_napr_sto"]),str(data["N_sto"]),str(data["name_sto"]),
-                                    str(data["date_pret"]), str(data["city_sto"]), str(float(data["coin_exp"])+float(data["coin_exp_izn"])), str(data["fio_k"])],
+                                [str(data.get("date_ombuc",'')), str(data.get("insurance",'')),str(data.get("city",'')), str(data.get("fio",'')), str(data.get("date_of_birth",'')),
+                                    str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
+                                    str(data.get("number_not",'')), str(data.get("seria_insurance",'')), str(data.get("number_insurance",'')), str(data.get("date_insurance",'')),
+                                    str(data.get("date_dtp",'')), str(data.get("time_dtp",'')), str(data.get("address_dtp",'')), str(data.get("marks",'')), str(data.get("car_number",'')),
+                                    str(data.get("date_ins_pod",'')), str(data.get("Nv_ins",'')), str(data.get("org_exp",'')), str(data.get("n_exp",'')), str(data.get("date_exp",'')),
+                                    str(data.get("coin_exp",'')), str(data.get("coin_exp_ins",'')),str(data.get("date_napr_sto",'')),str(data.get("N_sto",'')),str(data.get("name_sto",'')),
+                                    str(data.get("date_pret",'')), str(data.get("city_sto",'')), str(float(data.get("coin_exp",'0'))+float(data.get("coin_exp_izn",'0'))), str(data.get("fio_k",''))],
                                     "Шаблоны/1. ДТП/1. На ремонт/Ремонт не произведен СТО свыше 50км/7. Заявление фин. омбудсмену СТО свыше 50 км.docx",
                                     "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx")
             elif data['vibor'] == 'vibor5':
@@ -1656,13 +1663,13 @@ def setup_pret_department_handlers(bot, user_temp_data):
                                 "{{ Nв_страховую }}", "{{ Дата_СТО_30 }}","{{ Nакта_осмотра }}", "{{ Выплата_ОСАГО }}",
                                 "{{ Организация }}", "{{ Номер_экспертизы }}", "{{ Дата_экспертизы }}", "{{ Без_учета_износа }}",
                                 "{{ Утрата_стоимости }}", "{{ Разница }}", "{{ ФИОк }}"],
-                                [str(data["date_ombuc"]), str(data["insurance"]),str(data["city"]), str(data["fio"]), str(data["date_of_birth"]),
-                                    str(data["seria_pasport"]), str(data["number_pasport"]),str(data["where_pasport"]), str(data["when_pasport"]),
-                                    str(data["number_not"]), str(data["seria_insurance"]), str(data["number_insurance"]), str(data["date_insurance"]),
-                                    str(data["date_dtp"]), str(data["time_dtp"]), str(data["address_dtp"]), str(data["marks"]), str(data["car_number"]),
-                                    str(data["date_ins_pod"]), str(data["Nv_ins"]), str(data["date_istch_rem"]),str(data["Na_ins"]),
-                                    str(data.get('coin_osago', '0')), str(data["org_exp"]),str(data["n_exp"]),str(data["date_exp"]),
-                                    str(data["coin_exp"]), str(data["coin_exp_izn"]), str(float(data["coin_exp"])+float(data["coin_exp_izn"])-float(data.get('coin_osago', '0'))), str(data["fio_k"])],
+                                [str(data.get("date_ombuc",'')), str(data.get("insurance",'')),str(data.get("city",'')), str(data.get("fio",'')), str(data.get("date_of_birth",'')),
+                                    str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
+                                    str(data.get("number_not",'')), str(data.get("seria_insurance",'')), str(data.get("number_insurance",'')), str(data.get("date_insurance",'')),
+                                    str(data.get("date_dtp",'')), str(data.get("time_dtp",'')), str(data.get("address_dtp",'')), str(data.get("marks",'')), str(data.get("car_number",'')),
+                                    str(data.get("date_ins_pod",'')), str(data.get("Nv_ins",'')), str(data.get("date_istch_rem",'')),str(data.get("Na_ins",'')),
+                                    str(data.get('coin_osago') or '0'), str(data.get("org_exp",'')),str(data.get("n_exp",'')),str(data.get("date_exp",'')),
+                                    str(data.get("coin_exp",'0')), str(data.get("coin_exp_izn",'0')), str(float(data.get("coin_exp",'0'))+float(data.get("coin_exp_izn",'0'))-float(data.get('coin_osago') or '0')), str(data.get("fio_k",''))],
                                     "Шаблоны/1. ДТП/1. На ремонт/Страховая не организовала ремонт/7. Заявление фин. омбудсмену не организовали ремонт.docx",
                                     "clients/"+str(data["client_id"])+"/Документы/"+"Заявление фин. омбудсмену.docx")
             try:

@@ -15,7 +15,7 @@ from database import (
     get_admin_from_db_by_user_id,
     search_clients_by_fio_in_db,
     get_client_from_db_by_client_id,
-    get_client_contracts_list
+    get_admin_from_db_by_fio
 )
 from word_utils import create_fio_data_file, replace_words_in_word, get_next_business_date
 from functools import wraps
@@ -161,7 +161,7 @@ def setup_admin_handlers(bot, user_temp_data, upload_sessions):
         # Сохраняем данные в user_temp_data
         if admin_id not in user_temp_data:
             user_temp_data[admin_id] = {}
-        user_temp_data[admin_id] = contract
+        user_temp_data[admin_id].update(contract)
         user_temp_data[admin_id]['client_id'] = client_id
         
         # Формируем текст
@@ -185,8 +185,8 @@ def setup_admin_handlers(bot, user_temp_data, upload_sessions):
             contract_text += f"📍 Адрес ДТП: {contract_data.get('address_dtp')}\n"
         if contract_data.get('insurance'):
             contract_text += f"🏢 Страховая: {contract_data.get('insurance')}\n"
-        if contract.get('status'):
-            contract_text += f"📊 Статус: {contract.get('status')}\n"
+        if contract_data.get('status'):
+            contract_text += f"📊 Статус: {contract_data.get('status')}\n"
         
         keyboard = types.InlineKeyboardMarkup()
 
@@ -2716,12 +2716,12 @@ def setup_admin_handlers(bot, user_temp_data, upload_sessions):
         # ФОРМИРУЕМ ЮР ДОГОВОР
         replace_words_in_word(
             ["{{ Год }}", "{{ NКлиента }}", "{{ Город }}", "{{ Дата }}", "{{ ФИО }}", 
-            "{{ ДР }}", "{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
+            "{{ ДР }}", "{{ Место }}","{{ Паспорт_серия }}", "{{ Паспорт_номер }}", "{{ Паспорт_выдан }}", 
             "{{ Паспорт_когда }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Дата_ДТП }}", 
             "{{ Время_ДТП }}", "{{ Адрес_ДТП }}", "{{ ФИОк }}"],
             [str(data.get('year','')), str(data.get("client_id",'')), str(data.get("city",'')), 
             str(datetime.now().strftime("%d.%m.%Y")), str(data.get("fio",'')), 
-            str(data.get("date_of_birth",'')), str(data.get("seria_pasport",'')), 
+            str(data.get("date_of_birth",'')), str(data.get("city_birth",'')), str(data.get("seria_pasport",'')), 
             str(data.get("number_pasport",'')), str(data.get("where_pasport",'')),
             str(data.get("when_pasport",'')), str(data.get("index_postal",'')), 
             str(data.get("address",'')), str(data.get("date_dtp",'')), 
@@ -3539,7 +3539,7 @@ def setup_admin_handlers(bot, user_temp_data, upload_sessions):
             client_id = data['client_id']      
             if data.get('accident','') == 'ДТП':
                 if data.get('sobstvenik','') != 'С начала':
-                    keyboard.add(types.InlineKeyboardButton("Заполнить заявление в страховую ", callback_data=f"dtp_continue_documents_{client_id}"))
+                    keyboard.add(types.InlineKeyboardButton("Заполнить заявление в страховую ", callback_data=f"dtp_continue_documents2_{client_id}"))
                 keyboard.add(types.InlineKeyboardButton("📋 Запрос о выдаче акта и расчета", callback_data=f"request_act_payment_{data['client_id']}"))  
                 keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=get_contract_callback(user_id, data['client_id'])))
             
@@ -3661,7 +3661,7 @@ def setup_admin_handlers(bot, user_temp_data, upload_sessions):
         except FileNotFoundError:
             bot.send_message(call.message.chat.id, "❌ Ошибка: файл не найден")
         
-        if data.get('user_id','') != '8572367590':
+        if data.get('user_id','') != '8572367590' and str(user_id) !=  data.get('user_id',''):
             try:
                 keyboard = types.InlineKeyboardMarkup()
                 keyboard.add(types.InlineKeyboardButton("📄 Перейти к договору", callback_data=f"view_contract_{data['client_id']}"))  
@@ -4168,6 +4168,11 @@ def setup_admin_handlers(bot, user_temp_data, upload_sessions):
             data['date_ins_pod'] = str(get_next_business_date())
             data['status'] = 'Отправлен запрос в страховую'
 
+            if data.get("who_dtp", '') == '' or data.get("who_dtp", '') == None:
+                data.update({'who_dtp': 'По форме ГИБДД'})
+            if data.get("ev", '') == '' or data.get("ev", '') == None:
+                data.update({'ev': 'Нет'})  
+
             try:
                 from database import save_client_to_db_with_id
                 updated_client_id, updated_data = save_client_to_db_with_id(data)
@@ -4176,102 +4181,214 @@ def setup_admin_handlers(bot, user_temp_data, upload_sessions):
             except Exception as e:
                 print(f"⚠️ Ошибка обновления: {e}")
             
-            create_fio_data_file(data)
-            
-            # Выбираем шаблон в зависимости от эвакуатора    
+            create_fio_data_file(data)           
 
-            if data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Нет':
-                replace_words_in_word(
-                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
-                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
-                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
-                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
-                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
-                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
-                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
-                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
-                    [str(data.get("insurance",'')), str(data.get("fio",'')), str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),
-                    str(data.get("date_of_birth",'')), str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
-                    str(data.get("city_birth",'')), str(data.get("index_postal",'')), str(data.get("address",'')), str(data.get("docs",'')), 
-                    str(data.get("seria_docs",'')), str(data.get("number_docs",'')), str(data.get("data_docs",'')), 
-                    str(data.get("dkp",'')), str(data.get("marks",'')), str(data.get("year_auto",'')),
-                    str(data.get("car_number",'')), str(data.get("date_dtp",'')), str(data.get("time_dtp",'')),
-                    str(data.get("address_dtp",'')), str(data.get("fio_culp",'')), str(data.get("marks_culp",'')), str(data.get("seria_insurance",'')),
-                    str(data.get("number_insurance",'')), str(data.get("date_insurance",'')), str(data.get("city",'')), str(data.get("place",'')),
-                    str(data.get("number_photo",'')), str(data.get("bank",'')), str(data.get("bank_account",'')), str(data.get("bank_account_corr",'')),
-                    str(data.get("BIK",'')), str(data.get("INN",'')), str(data.get("date_ins",''))],
-                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент европротокол.docx",
-                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
-                    )
-            elif data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Да':
-                replace_words_in_word(
-                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
-                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
-                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
-                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
-                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
-                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
-                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
-                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}", "{{ Адрес_стоянки }}"],
-                    [str(data.get("insurance",'')), str(data.get("fio",'')), str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),
-                    str(data.get("date_of_birth",'')), str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
-                    str(data.get("city_birth",'')), str(data.get("index_postal",'')), str(data.get("address",'')), str(data.get("docs",'')), 
-                    str(data.get("seria_docs",'')), str(data.get("number_docs",'')), str(data.get("data_docs",'')), 
-                    str(data.get("dkp",'')), str(data.get("marks",'')), str(data.get("year_auto",'')),
-                    str(data.get("car_number",'')), str(data.get("date_dtp",'')), str(data.get("time_dtp",'')),
-                    str(data.get("address_dtp",'')), str(data.get("fio_culp",'')), str(data.get("marks_culp",'')), str(data.get("seria_insurance",'')),
-                    str(data.get("number_insurance",'')), str(data.get("date_insurance",'')), str(data.get("city",'')), str(data.get("place",'')),
-                    str(data.get("number_photo",'')), str(data.get("bank",'')), str(data.get("bank_account",'')), str(data.get("bank_account_corr",'')),
-                    str(data.get("BIK",'')), str(data.get("INN",'')), str(data.get("date_ins",'')), str(data.get("address_park",''))],
-                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент эвакуатор европротокол.docx",
-                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
-                    )
-            elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Да':
-                replace_words_in_word(
-                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
-                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
-                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
-                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
-                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
-                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
-                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", 
-                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}", "{{ Адрес_стоянки }}"],
-                    [str(data.get("insurance",'')), str(data.get("fio",'')), str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),
-                    str(data.get("date_of_birth",'')), str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
-                    str(data.get("city_birth",'')), str(data.get("index_postal",'')), str(data.get("address",'')), str(data.get("docs",'')), 
-                    str(data.get("seria_docs",'')), str(data.get("number_docs",'')), str(data.get("data_docs",'')), 
-                    str(data.get("dkp",'')), str(data.get("marks",'')), str(data.get("year_auto",'')),
-                    str(data.get("car_number",'')), str(data.get("date_dtp",'')), str(data.get("time_dtp",'')),
-                    str(data.get("address_dtp",'')), str(data.get("fio_culp",'')), str(data.get("marks_culp",'')), str(data.get("seria_insurance",'')),
-                    str(data.get("number_insurance",'')), str(data.get("date_insurance",'')), str(data.get("city",'')), str(data.get("place",'')),
-                    str(data.get("bank",'')), str(data.get("bank_account",'')), str(data.get("bank_account_corr",'')),
-                    str(data.get("BIK",'')), str(data.get("INN",'')), str(data.get("date_ins",'')), str(data.get("address_park",''))],
-                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент эвакуатор по форме ГИБДД.docx",
-                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
-                    )
-            elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Нет':
-                replace_words_in_word(
-                    ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
-                    "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
-                    "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
-                    "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
-                    "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
-                    "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
-                    "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", 
-                    "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
-                    [str(data.get("insurance",'')), str(data.get("fio",'')), str(data.get("seria_pasport",'')), str(data.get("number_pasport",'')),
-                    str(data.get("date_of_birth",'')), str(data.get("where_pasport",'')), str(data.get("when_pasport",'')),
-                    str(data.get("city_birth",'')), str(data.get("index_postal",'')), str(data.get("address",'')), str(data.get("docs",'')), 
-                    str(data.get("seria_docs",'')), str(data.get("number_docs",'')), str(data.get("data_docs",'')), 
-                    str(data.get("dkp",'')), str(data.get("marks",'')), str(data.get("year_auto",'')),
-                    str(data.get("car_number",'')), str(data.get("date_dtp",'')), str(data.get("time_dtp",'')),
-                    str(data.get("address_dtp",'')), str(data.get("fio_culp",'')), str(data.get("marks_culp",'')), str(data.get("seria_insurance",'')),
-                    str(data.get("number_insurance",'')), str(data.get("date_insurance",'')), str(data.get("city",'')), str(data.get("place",'')),
-                    str(data.get("bank",'')), str(data.get("bank_account",'')), str(data.get("bank_account_corr",'')),
-                    str(data.get("BIK",'')), str(data.get("INN",'')), str(data.get("date_ins",''))],
-                    "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент по форме ГИБДД.docx",
-                    f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
-                    )
+            if data.get('sobstvenik', '') != 'С начала':
+                if data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Нет':
+                    replace_words_in_word(
+                        ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
+                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
+                        [str(data.get("insurance", "")), str(data.get("fio", "")), str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")),
+                        str(data.get("date_of_birth", "")), str(data.get("where_pasport", "")), str(data.get("when_pasport", "")),
+                        str(data.get("city_birth", "")), str(data.get("index_postal", "")), str(data.get("address", "")), str(data.get("docs", "")), 
+                        str(data.get("seria_docs", "")), str(data.get("number_docs", "")), str(data.get("data_docs", "")), 
+                        str(data.get("dkp", "")), str(data.get("marks", "")), str(data.get("year_auto", "")),
+                        str(data.get("car_number", "")), str(data.get("date_dtp", "")), str(data.get("time_dtp", "")),
+                        str(data.get("address_dtp", "")), str(data.get("fio_culp", "")), str(data.get("marks_culp", "")), str(data.get("seria_insurance", "")),
+                        str(data.get("number_insurance", "")), str(data.get("date_insurance", "")), str(data.get("city", "")), str(data.get("place", "")),
+                        str(data.get("number_photo", "")), str(data.get("bank", "")), str(data.get("bank_account", "")), str(data.get("bank_account_corr", "")),
+                        str(data.get("BIK", "")), str(data.get("INN", "")), str(data.get("date_ins", ""))],
+                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент европротокол.docx",
+                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                        )
+                elif data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Да':
+                    replace_words_in_word(
+                        ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
+                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}", "{{ Адрес_стоянки }}"],
+                        [str(data.get("insurance", "")), str(data.get("fio", "")), str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")),
+                        str(data.get("date_of_birth", "")), str(data.get("where_pasport", "")), str(data.get("when_pasport", "")),
+                        str(data.get("city_birth", "")), str(data.get("index_postal", "")), str(data.get("address", "")), str(data.get("docs", "")), 
+                        str(data.get("seria_docs", "")), str(data.get("number_docs", "")), str(data.get("data_docs", "")), 
+                        str(data.get("dkp", "")), str(data.get("marks", "")), str(data.get("year_auto", "")),
+                        str(data.get("car_number", "")), str(data.get("date_dtp", "")), str(data.get("time_dtp", "")),
+                        str(data.get("address_dtp", "")), str(data.get("fio_culp", "")), str(data.get("marks_culp", "")), str(data.get("seria_insurance", "")),
+                        str(data.get("number_insurance", "")), str(data.get("date_insurance", "")), str(data.get("city", "")), str(data.get("place", "")),
+                        str(data.get("number_photo", "")), str(data.get("bank", "")), str(data.get("bank_account", "")), str(data.get("bank_account_corr", "")),
+                        str(data.get("BIK", "")), str(data.get("INN", "")), str(data.get("date_ins", "")), str(data.get("address_park", ""))],
+                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент эвакуатор европротокол.docx",
+                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                        )
+                elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Да':
+                    replace_words_in_word(
+                        ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", 
+                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}", "{{ Адрес_стоянки }}"],
+                        [str(data.get("insurance", "")), str(data.get("fio", "")), str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")),
+                        str(data.get("date_of_birth", "")), str(data.get("where_pasport", "")), str(data.get("when_pasport", "")),
+                        str(data.get("city_birth", "")), str(data.get("index_postal", "")), str(data.get("address", "")), str(data.get("docs", "")), 
+                        str(data.get("seria_docs", "")), str(data.get("number_docs", "")), str(data.get("data_docs", "")), 
+                        str(data.get("dkp", "")), str(data.get("marks", "")), str(data.get("year_auto", "")),
+                        str(data.get("car_number", "")), str(data.get("date_dtp", "")), str(data.get("time_dtp", "")),
+                        str(data.get("address_dtp", "")), str(data.get("fio_culp", "")), str(data.get("marks_culp", "")), str(data.get("seria_insurance", "")),
+                        str(data.get("number_insurance", "")), str(data.get("date_insurance", "")), str(data.get("city", "")), str(data.get("place", "")),
+                        str(data.get("bank", "")), str(data.get("bank_account", "")), str(data.get("bank_account_corr", "")),
+                        str(data.get("BIK", "")), str(data.get("INN", "")), str(data.get("date_ins", "")), str(data.get("address_park", ""))],
+                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент эвакуатор по форме ГИБДД.docx",
+                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                        )
+                elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Нет':
+                    replace_words_in_word(
+                        ["{{ Страховая }}", "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Место_Ж_Д }}", 
+                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
+                        [str(data.get("insurance", "")), str(data.get("fio", "")), str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")),
+                        str(data.get("date_of_birth", "")), str(data.get("where_pasport", "")), str(data.get("when_pasport", "")),
+                        str(data.get("city_birth", "")), str(data.get("index_postal", "")), str(data.get("address", "")), str(data.get("docs", "")), 
+                        str(data.get("seria_docs", "")), str(data.get("number_docs", "")), str(data.get("data_docs", "")), 
+                        str(data.get("dkp", "")), str(data.get("marks", "")), str(data.get("year_auto", "")),
+                        str(data.get("car_number", "")), str(data.get("date_dtp", "")), str(data.get("time_dtp", "")),
+                        str(data.get("address_dtp", "")), str(data.get("fio_culp", "")), str(data.get("marks_culp", "")), str(data.get("seria_insurance", "")),
+                        str(data.get("number_insurance", "")), str(data.get("date_insurance", "")), str(data.get("city", "")), str(data.get("place", "")),
+                        str(data.get("bank", "")), str(data.get("bank_account", "")), str(data.get("bank_account_corr", "")),
+                        str(data.get("BIK", "")), str(data.get("INN", "")), str(data.get("date_ins", ""))],
+                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую клиент по форме ГИБДД.docx",
+                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                        )
+            else:
+                try:
+                    admin_data = get_admin_from_db_by_fio(data.get('fio_not', ''))
+                except:
+                    print('Ошибка при загрузки данных юриста при составлении заявления в страховую')
+                if data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Нет':
+                    replace_words_in_word(
+                        ["{{ Страховая }}", "{{ Представитель }}", "{{ Паспорт_серия_юрист }}", "{{ Паспорт_номер_юрист }}", "{{ ДР_юрист }}", 
+                        "{{ Паспорт_выдан_юрист }}", "{{ Паспорт_когда_юрист }}", "{{ Место_юрист }}", "{{ Индекс_юрист }}", "{{ Адрес_юрист }}",
+                        "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Телефон_представителя }}","{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
+                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
+                        [str(data.get("insurance", "")), str(data.get("fio_not", "")), str(admin_data.get("seria_pasport", "")), str(admin_data.get("number_pasport", "")), str(admin_data.get("date_of_birth", "")),
+                        str(admin_data.get("where_pasport", "")), str(admin_data.get("when_pasport", "")), str(admin_data.get("city_birth", "")), str(admin_data.get("index_postal", "")), str(admin_data.get("address", "")),
+                        str(data.get("fio", "")), str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")),
+                        str(data.get("date_of_birth", "")), str(data.get("where_pasport", "")), str(data.get("when_pasport", "")),
+                        str(data.get("city_birth", "")), str(data.get("index_postal", "")), str(data.get("address", "")), str(data.get("docs", "")), 
+                        str(data.get("seria_docs", "")), str(data.get("number_docs", "")), str(data.get("data_docs", "")), 
+                        str(data.get("dkp", "")), str(data.get("marks", "")), str(data.get("year_auto", "")),
+                        str(data.get("car_number", "")), str(data.get("date_dtp", "")), str(data.get("time_dtp", "")),
+                        str(data.get("address_dtp", "")), str(data.get("fio_culp", "")), str(data.get("marks_culp", "")), str(data.get("seria_insurance", "")),
+                        str(data.get("number_insurance", "")), str(data.get("date_insurance", "")), str(data.get("city", "")), str(data.get("number_not", "")), str(data.get("place", "")),
+                        str(data.get("number_photo", "")), str(data.get("bank", "")), str(data.get("bank_account", "")), str(data.get("bank_account_corr", "")),
+                        str(data.get("BIK", "")), str(data.get("INN", "")), str(data.get("date_ins", ""))],
+                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую представитель европротокол.docx",
+                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                        )
+                elif data.get("who_dtp", '') == 'Евро-протокол' and data.get("ev", '') == 'Да':
+                    replace_words_in_word(
+                        ["{{ Страховая }}", "{{ Представитель }}", "{{ Паспорт_серия_юрист }}", "{{ Паспорт_номер_юрист }}", "{{ ДР_юрист }}", 
+                        "{{ Паспорт_выдан_юрист }}", "{{ Паспорт_когда_юрист }}", "{{ Место_юрист }}", "{{ Индекс_юрист }}", "{{ Адрес_юрист }}",
+                        "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Адрес_стоянки }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Телефон_представителя }}","{{ Место_Ж_Д }}", "{{ Фотофиксация }}",
+                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
+                        [str(data.get("insurance", "")), str(data.get("fio_not", "")), str(admin_data.get("seria_pasport", "")), str(admin_data.get("number_pasport", "")), str(admin_data.get("date_of_birth", "")),
+                        str(admin_data.get("where_pasport", "")), str(admin_data.get("when_pasport", "")), str(admin_data.get("city_birth", "")), str(admin_data.get("index_postal", "")), str(admin_data.get("address", "")),
+                        str(data.get("fio", "")), str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")),
+                        str(data.get("date_of_birth", "")), str(data.get("where_pasport", "")), str(data.get("when_pasport", "")),
+                        str(data.get("city_birth", "")), str(data.get("index_postal", "")), str(data.get("address", "")), str(data.get("docs", "")), 
+                        str(data.get("seria_docs", "")), str(data.get("number_docs", "")), str(data.get("data_docs", "")), 
+                        str(data.get("dkp", "")), str(data.get("marks", "")), str(data.get("year_auto", "")),
+                        str(data.get("car_number", "")), str(data.get("address_park", "")), str(data.get("date_dtp", "")), str(data.get("time_dtp", "")),
+                        str(data.get("address_dtp", "")), str(data.get("fio_culp", "")), str(data.get("marks_culp", "")), str(data.get("seria_insurance", "")),
+                        str(data.get("number_insurance", "")), str(data.get("date_insurance", "")), str(data.get("city", "")), str(data.get("number_not", "")), str(data.get("place", "")),
+                        str(data.get("number_photo", "")), str(data.get("bank", "")), str(data.get("bank_account", "")), str(data.get("bank_account_corr", "")),
+                        str(data.get("BIK", "")), str(data.get("INN", "")), str(data.get("date_ins", ""))],
+                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую представитель эвакуатор европротокол.docx",
+                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                        )
+                elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Нет':
+                    replace_words_in_word(
+                        ["{{ Страховая }}", "{{ Представитель }}", "{{ Паспорт_серия_юрист }}", "{{ Паспорт_номер_юрист }}", "{{ ДР_юрист }}", 
+                        "{{ Паспорт_выдан_юрист }}", "{{ Паспорт_когда_юрист }}", "{{ Место_юрист }}", "{{ Индекс_юрист }}", "{{ Адрес_юрист }}",
+                        "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Телефон_представителя }}","{{ Место_Ж_Д }}",
+                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
+                        [str(data.get("insurance", "")), str(data.get("fio_not", "")), str(admin_data.get("seria_pasport", "")), str(admin_data.get("number_pasport", "")), str(admin_data.get("date_of_birth", "")),
+                        str(admin_data.get("where_pasport", "")), str(admin_data.get("when_pasport", "")), str(admin_data.get("city_birth", "")), str(admin_data.get("index_postal", "")), str(admin_data.get("address", "")),
+                        str(data.get("fio", "")), str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")),
+                        str(data.get("date_of_birth", "")), str(data.get("where_pasport", "")), str(data.get("when_pasport", "")),
+                        str(data.get("city_birth", "")), str(data.get("index_postal", "")), str(data.get("address", "")), str(data.get("docs", "")), 
+                        str(data.get("seria_docs", "")), str(data.get("number_docs", "")), str(data.get("data_docs", "")), 
+                        str(data.get("dkp", "")), str(data.get("marks", "")), str(data.get("year_auto", "")),
+                        str(data.get("car_number", "")), str(data.get("date_dtp", "")), str(data.get("time_dtp", "")),
+                        str(data.get("address_dtp", "")), str(data.get("fio_culp", "")), str(data.get("marks_culp", "")), str(data.get("seria_insurance", "")),
+                        str(data.get("number_insurance", "")), str(data.get("date_insurance", "")), str(data.get("city", "")), str(data.get("number_not", "")), str(data.get("place", "")),
+                        str(data.get("bank", "")), str(data.get("bank_account", "")), str(data.get("bank_account_corr", "")),
+                        str(data.get("BIK", "")), str(data.get("INN", "")), str(data.get("date_ins", ""))],
+                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую представитель по форме ГИБДД.docx",
+                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                        )
+                elif data.get("who_dtp", '') == 'По форме ГИБДД' and data.get("ev", '') == 'Да':
+                    replace_words_in_word(
+                        ["{{ Страховая }}", "{{ Представитель }}", "{{ Паспорт_серия_юрист }}", "{{ Паспорт_номер_юрист }}", "{{ ДР_юрист }}", 
+                        "{{ Паспорт_выдан_юрист }}", "{{ Паспорт_когда_юрист }}", "{{ Место_юрист }}", "{{ Индекс_юрист }}", "{{ Адрес_юрист }}",
+                        "{{ ФИО }}", "{{ Паспорт_серия }}", 
+                        "{{ Паспорт_номер }}", "{{ ДР }}", "{{ Паспорт_выдан  }}",
+                        "{{ Паспорт_когда }}", "{{ Место }}", "{{ Индекс }}", "{{ Адрес }}", "{{ Документ }}",
+                        "{{ Док_серия }}", "{{ Док_номер }}", "{{ Док_когда }}", "{{ Договор ДКП }}", "{{ Марка_модель }}", 
+                        "{{ Год_авто }}", "{{ Nавто_клиента }}", "{{ Адрес_стоянки }}", "{{ Дата_ДТП }}", "{{ Время_ДТП }}",
+                        "{{ Адрес_ДТП }}", "{{ винФИО }}", "{{ Марка_модель_виновника }}", "{{ Серия_полиса }}",
+                        "{{ Номер_полиса }}", "{{ Дата_начала_полиса }}", "{{ Город }}", "{{ Телефон_представителя }}","{{ Место_Ж_Д }}",
+                        "{{ Банк_получателя }}", "{{ Счет_получателя }}", "{{ Кор_счет_получателя }}", "{{ БИК_Банка }}", "{{ ИНН_Банка }}","{{ Дата_заявления_форма6 }}"],
+                        [str(data.get("insurance", "")), str(data.get("fio_not", "")), str(admin_data.get("seria_pasport", "")), str(admin_data.get("number_pasport", "")), str(admin_data.get("date_of_birth", "")),
+                        str(admin_data.get("where_pasport", "")), str(admin_data.get("when_pasport", "")), str(admin_data.get("city_birth", "")), str(admin_data.get("index_postal", "")), str(admin_data.get("address", "")),
+                        str(data.get("fio", "")), str(data.get("seria_pasport", "")), str(data.get("number_pasport", "")),
+                        str(data.get("date_of_birth", "")), str(data.get("where_pasport", "")), str(data.get("when_pasport", "")),
+                        str(data.get("city_birth", "")), str(data.get("index_postal", "")), str(data.get("address", "")), str(data.get("docs", "")), 
+                        str(data.get("seria_docs", "")), str(data.get("number_docs", "")), str(data.get("data_docs", "")), 
+                        str(data.get("dkp", "")), str(data.get("marks", "")), str(data.get("year_auto", "")),
+                        str(data.get("car_number", "")), str(data.get("address_park", "")), str(data.get("date_dtp", "")), str(data.get("time_dtp", "")),
+                        str(data.get("address_dtp", "")), str(data.get("fio_culp", "")), str(data.get("marks_culp", "")), str(data.get("seria_insurance", "")),
+                        str(data.get("number_insurance", "")), str(data.get("date_insurance", "")), str(data.get("city", "")), str(data.get("number_not", "")), str(data.get("place", "")),
+                        str(data.get("bank", "")), str(data.get("bank_account", "")), str(data.get("bank_account_corr", "")),
+                        str(data.get("BIK", "")), str(data.get("INN", "")), str(data.get("date_ins", ""))],
+                        "Шаблоны/1. ДТП/1. На ремонт/3. Заявление в страховую после ДТП/Заявление в страховую представитель эвакуатор по форме ГИБДД.docx",
+                        f"clients/{data['client_id']}/Документы/Заявление в страховую.docx"
+                        )
             try:
                 with open(f"clients/{data['client_id']}/Документы/Заявление в страховую.docx", 'rb') as document_file:
                     keyboard = types.InlineKeyboardMarkup()
