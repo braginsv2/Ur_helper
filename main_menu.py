@@ -11,7 +11,6 @@ import psycopg2.extras
 from word_utils import create_fio_data_file, replace_words_in_word, get_next_business_date
 from functools import wraps
 
-
 active_callbacks = {}
 callback_lock = threading.Lock()
 def cleanup_messages(bot, chat_id, message_id, count):
@@ -7887,6 +7886,7 @@ def get_contract_callback(user_id, client_id):
         return f"pret_view_contract_{client_id}"
     
     return f"view_contract_{client_id}"
+
 
 
 
