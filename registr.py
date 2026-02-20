@@ -1,6 +1,5 @@
 from telebot import types
 import re
-import qrcode
 from io import BytesIO
 import os
 import config
@@ -12,7 +11,8 @@ from database import (
 import threading
 import time
 from functools import wraps
-
+from scan_pasport import process_passport_image
+from config import GIGACHAT_TOKEN
 # Словарь для отслеживания активных обработок
 active_callbacks = {}
 callback_lock = threading.Lock()
@@ -201,10 +201,11 @@ def setup_registration_handlers(bot, user_temp_data):
         # Запрашиваем серию паспорта
         msg = bot.send_message(
             user_id,
-            "Введите серию паспорта (4 цифры):",
+            "🤖 Прикрепите фото основного разворота паспорта (2-3 стр):",
             reply_markup = keyboard
         )
-        bot.register_next_step_handler(msg, process_invited_client_passport_series, data, msg.message_id)
+        active_handlers[msg.chat.id] = 'waiting_invited_passport_photo_2_3'
+        bot.register_next_step_handler(msg, process_invited_client_passport_photo_2_3, data, msg.message_id)
 
     def process_invited_client_passport_series(message, data, prev_message_id):
         """Обработка серии паспорта для приглашенного клиента"""
@@ -233,12 +234,49 @@ def setup_registration_handlers(bot, user_temp_data):
         
         data['seria_pasport'] = series
         user_temp_data[message.from_user.id].update(data)
-        
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_series"))
-        msg = bot.send_message(message.chat.id, "Введите номер паспорта (6 цифр):", reply_markup=keyboard)
-        active_handlers[message.chat.id] = 'waiting_invited_passport_number'
-        bot.register_next_step_handler(msg, process_invited_client_passport_number, data, msg.message_id)
+        if data['number_pasport'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите номер паспорта (6 цифр):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_passport_number, data, msg.message_id)
+
+        elif data['where_pasport'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите, кем выдан паспорт:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_passport_issued_by, data, msg.message_id)
+        elif data['when_pasport'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_passport_date, data, msg.message_id)
+        elif data['date_of_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите дату рождения (ДД.ММ.ГГГГ):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_date, data, msg.message_id)
+        elif data['city_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите город рождения:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_city, data, msg.message_id)
+        else:
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите адрес регистрации по паспорту:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_address, data, msg.message_id)
 
     @bot.callback_query_handler(func=lambda call: call.data == "back_invited_consent")
     @prevent_double_click(timeout=3.0)
@@ -309,11 +347,41 @@ def setup_registration_handlers(bot, user_temp_data):
         data['number_pasport'] = number
         user_temp_data[message.from_user.id].update(data)
         
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_number"))
-        msg = bot.send_message(message.chat.id, "Введите, кем выдан паспорт:", reply_markup=keyboard)
-        active_handlers[message.chat.id] = 'waiting_invited_passport_issued'
-        bot.register_next_step_handler(msg, process_invited_client_passport_issued_by, data, msg.message_id)
+        if data['where_pasport'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите, кем выдан паспорт:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_passport_issued_by, data, msg.message_id)
+        elif data['when_pasport'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_passport_date, data, msg.message_id)
+        elif data['date_of_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите дату рождения (ДД.ММ.ГГГГ):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_date, data, msg.message_id)
+        elif data['city_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите город рождения:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_city, data, msg.message_id)
+        else:
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите адрес регистрации по паспорту:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_address, data, msg.message_id)
 
     @bot.callback_query_handler(func=lambda call: call.data == "back_invited_passport_number")
     @prevent_double_click(timeout=3.0)
@@ -350,12 +418,36 @@ def setup_registration_handlers(bot, user_temp_data):
         
         data['where_pasport'] = message.text.strip()
         user_temp_data[message.from_user.id].update(data)
-        
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_issued"))
-        msg = bot.send_message(message.chat.id, "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):", reply_markup=keyboard)
-        active_handlers[message.chat.id] = 'waiting_invited_passport_date'
-        bot.register_next_step_handler(msg, process_invited_client_passport_date, data, msg.message_id)
+
+        if data['when_pasport'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_passport_date, data, msg.message_id)
+        elif data['date_of_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите дату рождения (ДД.ММ.ГГГГ):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_date, data, msg.message_id)
+        elif data['city_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите город рождения:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_city, data, msg.message_id)
+        else:
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите адрес регистрации по паспорту:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_address, data, msg.message_id)
+
 
     @bot.callback_query_handler(func=lambda call: call.data == "back_invited_passport_issued")
     @prevent_double_click(timeout=3.0)
@@ -406,12 +498,28 @@ def setup_registration_handlers(bot, user_temp_data):
         
         data['when_pasport'] = date_text
         user_temp_data[message.from_user.id].update(data)
-        
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_passport_date"))
-        msg = bot.send_message(message.chat.id, "Введите дату рождения (ДД.ММ.ГГГГ):", reply_markup=keyboard)
-        active_handlers[message.chat.id] = 'waiting_invited_birth_date'
-        bot.register_next_step_handler(msg, process_invited_client_birth_date, data, msg.message_id)
+        if data['date_of_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите дату рождения (ДД.ММ.ГГГГ):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_date, data, msg.message_id)
+        elif data['city_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите город рождения:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_city, data, msg.message_id)
+        else:
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите адрес регистрации по паспорту:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_address, data, msg.message_id)
+
 
     @bot.callback_query_handler(func=lambda call: call.data == "back_invited_passport_date")
     @prevent_double_click(timeout=3.0)
@@ -462,12 +570,21 @@ def setup_registration_handlers(bot, user_temp_data):
         
         data['date_of_birth'] = date_text
         user_temp_data[message.from_user.id].update(data)
-        
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_invited_birth_date"))
-        msg = bot.send_message(message.chat.id, "Введите город рождения:", reply_markup=keyboard)
-        active_handlers[message.chat.id] = 'waiting_invited_birth_city'
-        bot.register_next_step_handler(msg, process_invited_client_birth_city, data, msg.message_id)
+        if data['city_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите город рождения:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_city, data, msg.message_id)
+        else:
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите адрес регистрации по паспорту:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_address, data, msg.message_id)
+
 
     @bot.callback_query_handler(func=lambda call: call.data == "back_invited_birth_date")
     @prevent_double_click(timeout=3.0)
@@ -603,14 +720,7 @@ def setup_registration_handlers(bot, user_temp_data):
         data['index_postal'] = index
         user_temp_data[message.from_user.id].update(data)
         
-        # Переходим к загрузке фото паспорта
-        msg = bot.send_message(
-            message.chat.id,
-            "✅ Данные приняты!\n\n🤖 Прикрепите фото основного разворота паспорта (2-3 стр):"
-        )
-        
-        active_handlers[message.chat.id] = 'waiting_invited_passport_photo_2_3'
-        bot.register_next_step_handler(msg, process_invited_client_passport_photo_2_3, data, msg.message_id)
+        show_registration_summary(bot, message.chat.id, data)
 
 
     def process_invited_client_passport_photo_2_3(message, data, message_id):
@@ -636,10 +746,13 @@ def setup_registration_handlers(bot, user_temp_data):
                 
                 bot.delete_message(message.chat.id, message_id)
                 bot.delete_message(message.chat.id, message.message_id)
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
                 msg = bot.send_message(
                     message.chat.id, 
                     "❌ Неподдерживаемый формат файла. Отправьте фото или файл в формате JPG, PNG, PDF:\n\n"
-                    "Прикрепите фото основного разворота паспорта (2-3 стр):"
+                    "Прикрепите фото основного разворота паспорта (2-3 стр)",
+                    reply_markup = keyboard
                 )
                 bot.register_next_step_handler(msg, process_invited_client_passport_photo_2_3, data, msg.message_id)
                 return
@@ -656,9 +769,12 @@ def setup_registration_handlers(bot, user_temp_data):
         else:
             bot.delete_message(message.chat.id, message_id)
             bot.delete_message(message.chat.id, message.message_id)
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
             msg = bot.send_message(
                 message.chat.id, 
-                "❌ Пожалуйста, отправьте фото или файл. Прикрепите фото основного разворота паспорта (2-3 стр):"
+                "❌ Пожалуйста, отправьте фото или файл. Прикрепите фото основного разворота паспорта (2-3 стр):",
+                reply_markup = keyboard
             )
             bot.register_next_step_handler(msg, process_invited_client_passport_photo_2_3, data, msg.message_id)
             return
@@ -695,10 +811,13 @@ def setup_registration_handlers(bot, user_temp_data):
                 bot.delete_message(message.chat.id, message.message_id)
             except:
                 pass
+            keyboard = types.InlineKeyboardMarkup()
+            keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
             msg = bot.send_message(
                 message.chat.id, 
                 "❌ Ошибка при загрузке файла. Попробуйте еще раз:\n\n"
-                "Прикрепите фото основного разворота паспорта (2-3 стр):"
+                "Прикрепите фото основного разворота паспорта (2-3 стр):",
+                reply_markup = keyboard
             )
             bot.register_next_step_handler(msg, process_invited_client_passport_photo_2_3, data, msg.message_id)
 
@@ -778,92 +897,151 @@ def setup_registration_handlers(bot, user_temp_data):
                 bot.delete_message(message.chat.id, message_id)
             except:
                 pass
+            print(data['passport_photo_2_3'])
+            data_pasport = process_passport_image(data['passport_photo_2_3'], GIGACHAT_TOKEN)
+
+            data.update({'seria_pasport': data_pasport['seria_pasport']})
+            data.update({'number_pasport': data_pasport['number_pasport']})
+            data.update({'where_pasport': data_pasport['where_pasport']})
+            data.update({'when_pasport': data_pasport['when_pasport']})
+            data.update({'date_of_birth': data_pasport['date_of_birth']})
+            data.update({'city_birth': data_pasport['city_birth']})
+            print(data)
+            if data['seria_pasport'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите серию паспорта (4 цифры):"
+                )
+
+                bot.register_next_step_handler(message, process_invited_client_passport_series, data, msg.message_id)
+            elif data['number_pasport'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите номер паспорта (6 цифр):"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_passport_number, data, msg.message_id)
+
+            elif data['where_pasport'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите, кем выдан паспорт:"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_passport_issued_by, data, msg.message_id)
+            elif data['when_pasport'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_passport_date, data, msg.message_id)
+            elif data['date_of_birth'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите дату рождения (ДД.ММ.ГГГГ):"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_birth_date, data, msg.message_id)
+            elif data['city_birth'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите город рождения:"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_birth_city, data, msg.message_id)
+            else:
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите адрес регистрации по паспорту:"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_address, data, msg.message_id)
+            # # ТЕПЕРЬ СОХРАНЯЕМ В БД И ОТПРАВЛЯЕМ НА ПОДТВЕРЖДЕНИЕ
+            # user_id = data['user_id']
+            # inviter_type = data.get('invited_by_type')
             
-            # ТЕПЕРЬ СОХРАНЯЕМ В БД И ОТПРАВЛЯЕМ НА ПОДТВЕРЖДЕНИЕ
-            user_id = data['user_id']
-            inviter_type = data.get('invited_by_type')
-            
-            # Сохраняем в БД
-            try:
-                db.save_admin(data)
+            # # Сохраняем в БД
+            # try:
+            #     db.save_admin(data)
                 
-                # Сохраняем связь клиент-агент если приглашающий был агентом
-                if inviter_type == 'agent':
-                    with db.get_connection() as conn:
-                        with conn.cursor() as cursor:
-                            cursor.execute("""
-                                INSERT INTO client_agent_relationships (client_user_id, agent_id)
-                                VALUES (%s, %s)
-                                ON CONFLICT (client_user_id) DO NOTHING
-                            """, (user_id, data['invited_by_user_id']))
-                            conn.commit()
+            #     # Сохраняем связь клиент-агент если приглашающий был агентом
+            #     if inviter_type == 'agent':
+            #         with db.get_connection() as conn:
+            #             with conn.cursor() as cursor:
+            #                 cursor.execute("""
+            #                     INSERT INTO client_agent_relationships (client_user_id, agent_id)
+            #                     VALUES (%s, %s)
+            #                     ON CONFLICT (client_user_id) DO NOTHING
+            #                 """, (user_id, data['invited_by_user_id']))
+            #                 conn.commit()
                 
-                # Очищаем временные данные
-                if user_id in user_temp_data:
-                    del user_temp_data[user_id]
+            #     # Очищаем временные данные
+            #     if user_id in user_temp_data:
+            #         del user_temp_data[user_id]
                 
-                # Очищаем pending_invites для этого ФИО
-                client_fio = data.get('fio', '')
-                if 'pending_invites' in user_temp_data and (str(data['invited_by_user_id'])+'_'+client_fio.split()[0]) in user_temp_data['pending_invites']:
-                    del user_temp_data['pending_invites'][str(data['invited_by_user_id'])+'_'+client_fio.split()[0]]
+            #     # Очищаем pending_invites для этого ФИО
+            #     client_fio = data.get('fio', '')
+            #     if 'pending_invites' in user_temp_data and (str(data['invited_by_user_id'])+'_'+client_fio.split()[0]) in user_temp_data['pending_invites']:
+            #         del user_temp_data['pending_invites'][str(data['invited_by_user_id'])+'_'+client_fio.split()[0]]
                 
-                # Логика для разных типов клиентов
-                if data['admin_value'] == 'Клиент_агент':
-                    # Отправляем запрос на подтверждение регистрации АГЕНТУ
-                    inviter_id = data.get('invited_by_user_id')
+            #     # Логика для разных типов клиентов
+            #     if data['admin_value'] == 'Клиент_агент':
+            #         # Отправляем запрос на подтверждение регистрации АГЕНТУ
+            #         inviter_id = data.get('invited_by_user_id')
                     
-                    # Клиенту говорим ждать
-                    msg = bot.send_message(
-                        int(data['user_id']),
-                        "✅ Регистрация завершена!\n\n"
-                        "⏳ Ожидайте подтверждения от агента."
-                    )
-                    if message.from_user.id not in user_temp_data:
-                        user_temp_data[message.from_user.id] = {}
-                    user_temp_data[message.from_user.id]['message_id'] = msg.message_id
-                    # Агенту отправляем запрос на подтверждение
-                    keyboard = types.InlineKeyboardMarkup()
-                    btn_approve = types.InlineKeyboardButton(
-                        "✅ Подтвердить", 
-                        callback_data=f"approve_client_reg_{user_id}"
-                    )
-                    btn_reject = types.InlineKeyboardButton(
-                        "❌ Отклонить", 
-                        callback_data=f"reject_client_reg_{user_id}"
-                    )
-                    keyboard.add(btn_approve, btn_reject)
+            #         # Клиенту говорим ждать
+            #         msg = bot.send_message(
+            #             int(data['user_id']),
+            #             "✅ Регистрация завершена!\n\n"
+            #             "⏳ Ожидайте подтверждения от агента."
+            #         )
+            #         if message.from_user.id not in user_temp_data:
+            #             user_temp_data[message.from_user.id] = {}
+            #         user_temp_data[message.from_user.id]['message_id'] = msg.message_id
+            #         # Агенту отправляем запрос на подтверждение
+            #         keyboard = types.InlineKeyboardMarkup()
+            #         btn_approve = types.InlineKeyboardButton(
+            #             "✅ Подтвердить", 
+            #             callback_data=f"approve_client_reg_{user_id}"
+            #         )
+            #         btn_reject = types.InlineKeyboardButton(
+            #             "❌ Отклонить", 
+            #             callback_data=f"reject_client_reg_{user_id}"
+            #         )
+            #         keyboard.add(btn_approve, btn_reject)
                     
-                    bot.send_message(
-                        inviter_id,
-                        f"📝 <b>Клиент завершил регистрацию</b>\n\n"
-                        f"👤 ФИО: {data.get('fio', 'Не указано')}\n"
-                        f"📱 Телефон: {data.get('number', 'Не указан')}\n"
-                        f"🏙 Город: {data.get('city_admin', 'Не указан')}\n\n"
-                        f"Подтвердите регистрацию клиента:",
-                        parse_mode='HTML',
-                        reply_markup=keyboard
-                    )
+            #         bot.send_message(
+            #             inviter_id,
+            #             f"📝 <b>Клиент завершил регистрацию</b>\n\n"
+            #             f"👤 ФИО: {data.get('fio', 'Не указано')}\n"
+            #             f"📱 Телефон: {data.get('number', 'Не указан')}\n"
+            #             f"🏙 Город: {data.get('city_admin', 'Не указан')}\n\n"
+            #             f"Подтвердите регистрацию клиента:",
+            #             parse_mode='HTML',
+            #             reply_markup=keyboard
+            #         )
                     
-                elif data['admin_value'] == 'Клиент':
-                    keyboard = types.InlineKeyboardMarkup()
-                    keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
-                    bot.send_message(
-                        message.chat.id,
-                        "✅ Регистрация завершена!",
-                        reply_markup = keyboard
-                    )
-                    bot.send_message(
-                        data['invited_by_user_id'],
-                        f"✅ Клиент {data['fio']} завершил регистрацию!",
-                        reply_markup = keyboard
-                    )
+            #     elif data['admin_value'] == 'Клиент':
+            #         keyboard = types.InlineKeyboardMarkup()
+            #         keyboard.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="callback_start"))
+            #         bot.send_message(
+            #             message.chat.id,
+            #             "✅ Регистрация завершена!",
+            #             reply_markup = keyboard
+            #         )
+            #         bot.send_message(
+            #             data['invited_by_user_id'],
+            #             f"✅ Клиент {data['fio']} завершил регистрацию!",
+            #             reply_markup = keyboard
+            #         )
     
                     
-            except Exception as e:
-                print(f"Ошибка сохранения приглашенного клиента: {e}")
-                import traceback
-                traceback.print_exc()
-                bot.send_message(message.chat.id, "❌ Ошибка регистрации. Попробуйте позже.")
+            # except Exception as e:
+            #     print(f"Ошибка сохранения приглашенного клиента: {e}")
+            #     import traceback
+            #     traceback.print_exc()
+            #     bot.send_message(message.chat.id, "❌ Ошибка регистрации. Попробуйте позже.")
             
         except Exception as e:
             print(f"❌ Ошибка при обработке файла: {e}")
@@ -878,6 +1056,7 @@ def setup_registration_handlers(bot, user_temp_data):
                 "Теперь прикрепите фото прописки паспорта (4-5 или 6-7 стр):"
             )
             bot.register_next_step_handler(msg, process_invited_client_passport_photo_4_5, data, msg.message_id)
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_client_reg_"))
     @prevent_double_click(timeout=3.0)
     def approve_client_registration_by_agent(call):
@@ -1282,12 +1461,11 @@ def setup_registration_handlers(bot, user_temp_data):
         message = bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="Введите ФИО в формате: Иванов Иван Иванович",
+            text="🤖 Прикрепите фото основного разворота паспорта (2-3 стр):",
             reply_markup = keyboard
         )
         
-        active_handlers[call.message.chat.id] = 'waiting_fio'
-        bot.register_next_step_handler(message, process_fio_admin, data, message.message_id)
+        bot.register_next_step_handler(message, process_passport_photo_2_3, data, message.message_id)
         
     @bot.callback_query_handler(func=lambda call: call.data == "back_to_role_selection")
     @prevent_double_click(timeout=3.0)
@@ -1455,28 +1633,56 @@ def setup_registration_handlers(bot, user_temp_data):
         data['number'] = phone
         user_temp_data[message.from_user.id] = data
         
-        # Отправляем отдельное сообщение которое будет висеть
-        passport_info_msg = bot.send_message(
-            message.chat.id,
-            "🤖 <b>Заполните паспортные данные</b>",
-            parse_mode='HTML'
-        )
-        
-        # Сохраняем ID этого сообщения чтобы удалить его позже
-        if passport_info_msg and hasattr(passport_info_msg, 'message_id'):
-            data['passport_info_message_id'] = passport_info_msg.message_id
-        user_temp_data[message.from_user.id] = data
-        
-        # Теперь запрашиваем серию паспорта - это сообщение будет меняться
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton("◀️ Назад", callback_data="back_to_phone_input"))
-        msg = bot.send_message(
-            message.chat.id,
-            "Введите серию паспорта (4 цифры):",
-            reply_markup=keyboard
-        )
-        active_handlers[message.chat.id] = 'waiting_passport_series'
-        bot.register_next_step_handler(msg, process_new_passport_series, data, msg.message_id)
+        if data['seria_pasport'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите серию паспорта (4 цифры):"
+            )
+
+            bot.register_next_step_handler(message, process_invited_client_passport_series, data, msg.message_id)
+        elif data['number_pasport'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите номер паспорта (6 цифр):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_passport_number, data, msg.message_id)
+
+        elif data['where_pasport'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите, кем выдан паспорт:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_passport_issued_by, data, msg.message_id)
+        elif data['when_pasport'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_passport_date, data, msg.message_id)
+        elif data['date_of_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите дату рождения (ДД.ММ.ГГГГ):"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_date, data, msg.message_id)
+        elif data['city_birth'] == '':
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите город рождения:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_birth_city, data, msg.message_id)
+        else:
+            msg = bot.send_message(
+                message.chat.id,
+                "Введите адрес регистрации по паспорту:"
+            )
+
+            bot.register_next_step_handler(msg, process_invited_client_address, data, msg.message_id)
 
     @bot.callback_query_handler(func=lambda call: call.data == "back_to_phone_input")
     @prevent_double_click(timeout=3.0)
@@ -2313,13 +2519,87 @@ def setup_registration_handlers(bot, user_temp_data):
                 bot.delete_message(call.message.chat.id, data['passport_info_message_id'])
             except:
                 pass
-        msg = bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="✅ Данные приняты!\n\n🤖 Прикрепите фото основного разворота паспорта (2-3 стр):"
-        )
         
-        bot.register_next_step_handler(msg, process_passport_photo_2_3, data, msg.message_id)
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        if data['admin_value'] == 'Клиент_агент':
+            # ТЕПЕРЬ СОХРАНЯЕМ В БД И ОТПРАВЛЯЕМ НА ПОДТВЕРЖДЕНИЕ
+            data['admin_value'] = 'Клиент'
+            user_id = data['user_id']
+            inviter_type = data.get('invited_by_type')
+            
+            # Сохраняем в БД
+            try:
+                db.save_admin(data)
+                
+                # Сохраняем связь клиент-агент если приглашающий был агентом
+                if inviter_type == 'agent':
+                    with db.get_connection() as conn:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                                INSERT INTO client_agent_relationships (client_user_id, agent_id)
+                                VALUES (%s, %s)
+                                ON CONFLICT (client_user_id) DO NOTHING
+                            """, (user_id, data['invited_by_user_id']))
+                            conn.commit()
+                
+                # Очищаем временные данные
+                if user_id in user_temp_data:
+                    del user_temp_data[user_id]
+                
+                # Очищаем pending_invites для этого ФИО
+                client_fio = data.get('fio', '')
+                if 'pending_invites' in user_temp_data and (str(data['invited_by_user_id'])+'_'+client_fio.split()[0]) in user_temp_data['pending_invites']:
+                    del user_temp_data['pending_invites'][str(data['invited_by_user_id'])+'_'+client_fio.split()[0]]
+                
+                
+                # Отправляем запрос на подтверждение регистрации АГЕНТУ
+                inviter_id = data.get('invited_by_user_id')
+                
+                # Клиенту говорим ждать
+                msg = bot.send_message(
+                    int(data['user_id']),
+                    "✅ Регистрация завершена!\n\n"
+                    "⏳ Ожидайте подтверждения от агента."
+                )
+                if call.message.from_user.id not in user_temp_data:
+                    user_temp_data[call.message.from_user.id] = {}
+                user_temp_data[call.message.from_user.id]['message_id'] = msg.message_id
+                # Агенту отправляем запрос на подтверждение
+                keyboard = types.InlineKeyboardMarkup()
+                btn_approve = types.InlineKeyboardButton(
+                    "✅ Подтвердить", 
+                    callback_data=f"approve_client_reg_{user_id}"
+                )
+                btn_reject = types.InlineKeyboardButton(
+                    "❌ Отклонить", 
+                    callback_data=f"reject_client_reg_{user_id}"
+                )
+                keyboard.add(btn_approve, btn_reject)
+                
+                bot.send_message(
+                    inviter_id,
+                    f"📝 <b>Клиент завершил регистрацию</b>\n\n"
+                    f"👤 ФИО: {data.get('fio', 'Не указано')}\n"
+                    f"📱 Телефон: {data.get('number', 'Не указан')}\n"
+                    f"🏙 Город: {data.get('city_admin', 'Не указан')}\n\n"
+                    f"Подтвердите регистрацию клиента:",
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+                    
+    
+                    
+            except Exception as e:
+                print(f"Ошибка сохранения приглашенного клиента: {e}")
+                import traceback
+                traceback.print_exc()
+                bot.send_message(call.message.chat.id, "❌ Ошибка регистрации. Попробуйте позже.")
+        else:
+            finalize_registration(bot, user_id, data)
+
 
     def process_passport_photo_2_3(message, data, message_id):
         """Обработка фото 2-3 страницы паспорта (поддерживает фото и файлы)"""
@@ -2370,9 +2650,12 @@ def setup_registration_handlers(bot, user_temp_data):
             else:
                 file_extension = 'jpg'  # fallback
         else:
-            # Ни фото ни файл не отправлены
-            bot.delete_message(message.chat.id, message_id)
-            bot.delete_message(message.chat.id, message.message_id)
+            try:
+                # Ни фото ни файл не отправлены
+                bot.delete_message(message.chat.id, message_id)
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
             msg = bot.send_message(
                 message.chat.id, 
                 "❌ Пожалуйста, отправьте фото или файл. Прикрепите фото основного разворота паспорта (2-3 стр):"
@@ -2518,14 +2801,85 @@ def setup_registration_handlers(bot, user_temp_data):
                 bot.delete_message(message.chat.id, message_id)
             except:
                 pass
+            data_pasport = process_passport_image(data['passport_photo_2_3'], GIGACHAT_TOKEN)
+            data.update({'fio': data_pasport['fio']})
+            data.update({'seria_pasport': data_pasport['seria_pasport']})
+            data.update({'number_pasport': data_pasport['number_pasport']})
+            data.update({'where_pasport': data_pasport['where_pasport']})
+            data.update({'when_pasport': data_pasport['when_pasport']})
+            data.update({'date_of_birth': data_pasport['date_of_birth']})
+            data.update({'city_birth': data_pasport['city_birth']})
+            print(data)
+            if data['fio'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите ФИО (Иванов Иван Иванович)"
+                )
+
+                bot.register_next_step_handler(message, process_fio_admin, data, msg.message_id)
+            elif data.get('number') in (None, ''):
+                msg = bot.send_message(message.chat.id, "Введите номер телефона (например, +79001234567):")
+
+                bot.register_next_step_handler(msg, process_phone_registration, data, msg.message_id)
+            elif data['seria_pasport'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите серию паспорта (4 цифры):"
+                )
+
+                bot.register_next_step_handler(message, process_invited_client_passport_series, data, msg.message_id)
+            elif data['number_pasport'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите номер паспорта (6 цифр):"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_passport_number, data, msg.message_id)
+
+            elif data['where_pasport'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите, кем выдан паспорт:"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_passport_issued_by, data, msg.message_id)
+            elif data['when_pasport'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите дату выдачи паспорта (ДД.ММ.ГГГГ):"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_passport_date, data, msg.message_id)
+            elif data['date_of_birth'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите дату рождения (ДД.ММ.ГГГГ):"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_birth_date, data, msg.message_id)
+            elif data['city_birth'] == '':
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите город рождения:"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_birth_city, data, msg.message_id)
+            else:
+                msg = bot.send_message(
+                    message.chat.id,
+                    "Введите адрес регистрации по паспорту:"
+                )
+
+                bot.register_next_step_handler(msg, process_invited_client_address, data, msg.message_id)
             
-            # Переход к следующему этапу в зависимости от роли
-            finalize_registration(bot, message.from_user.id, data)
             
         except Exception as e:
             print(f"❌ Ошибка при обработке файла: {e}")
-            bot.delete_message(message.chat.id, message_id)
-            bot.delete_message(message.chat.id, message.message_id)
+            try:
+                bot.delete_message(message.chat.id, message_id)
+                bot.delete_message(message.chat.id, message.message_id)
+            except:
+                pass
             msg = bot.send_message(
                 message.chat.id, 
                 "❌ Ошибка при загрузке файла. Попробуйте еще раз:\n\n"
@@ -2536,10 +2890,13 @@ def setup_registration_handlers(bot, user_temp_data):
     def finalize_registration(bot, user_id, data):
         """Завершение регистрации в зависимости от роли"""
         admin_value = data.get('admin_value', '')
-        
         # Добавляем user_id перед сохранением
         data['user_id'] = str(user_id)
         print(data)
+        if len(data['fio'].split())==2:
+            data.update({"fio_k": data['fio'].split()[0]+" "+list(data['fio'].split()[1])[0]+"."})
+        else:
+            data.update({"fio_k": data['fio'].split()[0]+" "+list(data['fio'].split()[1])[0]+"."+list(data['fio'].split()[2])[0]+"."})
         # Сохраняем в БД используя метод save_admin
         try:
             db.save_admin(data)
