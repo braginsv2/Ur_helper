@@ -21,6 +21,7 @@ log_filename = f"bot_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 import os
 os.makedirs('logs', exist_ok=True)
 
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -522,4 +523,5 @@ if __name__ == '__main__':
         bot.infinity_polling(none_stop=True, timeout=60)
     except Exception as e:
         print(f"❌ Ошибка при работе бота: {e}")
+
 
