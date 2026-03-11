@@ -14,6 +14,7 @@ import sys
 import logging
 from datetime import datetime
 
+
 # Настройка логирования в файл
 log_filename = f"bot_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 
@@ -523,5 +524,6 @@ if __name__ == '__main__':
         bot.infinity_polling(none_stop=True, timeout=60)
     except Exception as e:
         print(f"❌ Ошибка при работе бота: {e}")
+
 
 
