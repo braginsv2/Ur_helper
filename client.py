@@ -19,6 +19,7 @@ from database import (
 from word_utils import create_fio_data_file, replace_words_in_word, get_next_business_date
 from functools import wraps
 
+
 active_callbacks = {}
 callback_lock = threading.Lock()
 db = DatabaseManager()
