@@ -14,7 +14,6 @@ import sys
 import logging
 from datetime import datetime
 
-
 # Настройка логирования в файл
 log_filename = f"bot_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 
