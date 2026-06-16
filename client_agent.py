@@ -22,7 +22,6 @@ active_callbacks = {}
 callback_lock = threading.Lock()
 db = DatabaseManager()
 
-
 insurance_companies = [
     ('АО "Согаз"', "SOGAZ"),
     ('ПАО СК "Росгосстрах"', "Ros"),
